@@ -1,3 +1,5 @@
+import { useLocation } from "react-router-dom";
+import { NavLink } from "@/components/NavLink";
 import { 
   LayoutDashboard, 
   Users, 
@@ -15,11 +17,10 @@ interface NavItem {
   icon: React.ElementType;
   label: string;
   href: string;
-  active?: boolean;
 }
 
 const navItems: NavItem[] = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/", active: true },
+  { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: Users, label: "Users", href: "/users" },
   { icon: Tv, label: "Streams", href: "/streams" },
   { icon: Server, label: "Servers", href: "/servers" },
@@ -30,6 +31,8 @@ const navItems: NavItem[] = [
 ];
 
 export function Sidebar() {
+  const location = useLocation();
+
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-sidebar-border bg-sidebar">
       <div className="flex h-full flex-col">
@@ -46,24 +49,27 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 p-4">
-          {navItems.map((item) => (
-            <a
-              key={item.label}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                item.active
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-              )}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-              {item.active && (
-                <div className="ml-auto h-1.5 w-1.5 rounded-full bg-primary animate-pulse-glow" />
-              )}
-            </a>
-          ))}
+          {navItems.map((item) => {
+            const isActive = location.pathname === item.href;
+            return (
+              <NavLink
+                key={item.label}
+                to={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                )}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+                {isActive && (
+                  <div className="ml-auto h-1.5 w-1.5 rounded-full bg-primary animate-pulse-glow" />
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
 
         {/* Server Status */}
