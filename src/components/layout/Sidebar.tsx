@@ -1,5 +1,6 @@
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
+import { useAuth } from "@/hooks/useAuth";
 import { 
   LayoutDashboard, 
   Users, 
@@ -32,6 +33,13 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { signOut, user } = useAuth();
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/auth');
+  };
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-sidebar-border bg-sidebar">
@@ -84,11 +92,20 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* Logout */}
-        <div className="border-t border-sidebar-border p-4">
-          <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive">
+        {/* User Info & Logout */}
+        <div className="border-t border-sidebar-border p-4 space-y-2">
+          {user && (
+            <div className="px-3 py-2">
+              <p className="text-xs text-muted-foreground">Prijavljeni kao</p>
+              <p className="text-sm font-medium text-foreground truncate">{user.email}</p>
+            </div>
+          )}
+          <button 
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
+          >
             <LogOut className="h-5 w-5" />
-            Logout
+            Odjavi se
           </button>
         </div>
       </div>
