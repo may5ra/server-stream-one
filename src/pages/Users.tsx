@@ -3,7 +3,7 @@ import { Plus, Search, Circle, Edit, Trash2, Copy, Download, FileText } from "lu
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
@@ -51,6 +51,8 @@ const Users = () => {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const { toast } = useToast();
 
   const [newUser, setNewUser] = useState({
@@ -91,6 +93,20 @@ const Users = () => {
   const handleDeleteUser = (id: string) => {
     setUsers(users.filter(u => u.id !== id));
     toast({ title: "Deleted", description: "User has been removed" });
+  };
+
+  const handleEditUser = (user: User) => {
+    setEditingUser(user);
+    setIsEditOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingUser) return;
+    
+    setUsers(users.map(u => u.id === editingUser.id ? editingUser : u));
+    setIsEditOpen(false);
+    setEditingUser(null);
+    toast({ title: "Updated", description: "User updated successfully" });
   };
 
   const handleCopyCredentials = (user: User) => {
@@ -158,6 +174,7 @@ const Users = () => {
               <DialogContent className="glass">
                 <DialogHeader>
                   <DialogTitle>Create New User</DialogTitle>
+                  <DialogDescription>Add a new user to the streaming panel</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
@@ -199,6 +216,69 @@ const Users = () => {
                     Create User
                   </Button>
                 </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* Edit User Dialog */}
+            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+              <DialogContent className="glass">
+                <DialogHeader>
+                  <DialogTitle>Edit User</DialogTitle>
+                  <DialogDescription>Modify user settings and credentials</DialogDescription>
+                </DialogHeader>
+                {editingUser && (
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Username</Label>
+                      <Input
+                        value={editingUser.username}
+                        onChange={(e) => setEditingUser({ ...editingUser, username: e.target.value })}
+                        placeholder="Enter username"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Password</Label>
+                      <Input
+                        value={editingUser.password}
+                        onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })}
+                        placeholder="Enter password"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Max Connections</Label>
+                      <Input
+                        type="number"
+                        value={editingUser.maxConnections}
+                        onChange={(e) => setEditingUser({ ...editingUser, maxConnections: parseInt(e.target.value) || 1 })}
+                        min="1"
+                        max="10"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Expiry Date</Label>
+                      <Input
+                        type="date"
+                        value={editingUser.expiry}
+                        onChange={(e) => setEditingUser({ ...editingUser, expiry: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <select
+                        value={editingUser.status}
+                        onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value as User['status'] })}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <option value="online">Online</option>
+                        <option value="offline">Offline</option>
+                        <option value="expired">Expired</option>
+                      </select>
+                    </div>
+                    <Button onClick={handleSaveEdit} className="w-full" variant="glow">
+                      Save Changes
+                    </Button>
+                  </div>
+                )}
               </DialogContent>
             </Dialog>
           </div>
@@ -270,7 +350,7 @@ const Users = () => {
                             <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy Credentials" onClick={() => handleCopyCredentials(user)}>
                               <Copy className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit User">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit User" onClick={() => handleEditUser(user)}>
                               <Edit className="h-4 w-4" />
                             </Button>
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Delete User" onClick={() => handleDeleteUser(user.id)}>
