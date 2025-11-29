@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Search, MoreHorizontal, Circle, Edit, Trash2, Eye, Copy } from "lucide-react";
+import { Plus, Search, Circle, Edit, Trash2, Copy, Download, FileText } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -35,11 +35,22 @@ const statusConfig = {
   expired: { color: "text-destructive", bg: "bg-destructive/20", label: "Expired" },
 };
 
+// Sample channels for playlist
+const channels = [
+  { name: "Sport 1 HD", url: "http://stream.example.com/sport1/playlist.m3u8" },
+  { name: "Sport 2 HD", url: "http://stream.example.com/sport2/playlist.m3u8" },
+  { name: "News 24", url: "http://stream.example.com/news24/playlist.m3u8" },
+  { name: "Movies HD", url: "http://stream.example.com/movies/playlist.m3u8" },
+  { name: "Music Channel", url: "http://stream.example.com/music/playlist.m3u8" },
+  { name: "Documentary", url: "http://stream.example.com/docs/playlist.m3u8" },
+  { name: "Kids TV", url: "http://stream.example.com/kids/playlist.m3u8" },
+  { name: "Series HD", url: "http://stream.example.com/series/playlist.m3u8" },
+];
+
 const Users = () => {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editUser, setEditUser] = useState<User | null>(null);
   const { toast } = useToast();
 
   const [newUser, setNewUser] = useState({
@@ -85,6 +96,42 @@ const Users = () => {
   const handleCopyCredentials = (user: User) => {
     navigator.clipboard.writeText(`Username: ${user.username}\nPassword: ${user.password}`);
     toast({ title: "Copied", description: "Credentials copied to clipboard" });
+  };
+
+  const generateM3UPlaylist = (user: User) => {
+    const serverUrl = "http://panel.example.com";
+    
+    let playlist = `#EXTM3U\n`;
+    playlist += `#EXTINF:-1 tvg-id="" tvg-name="StreamPanel" tvg-logo="" group-title="Info",StreamPanel - ${user.username}\n`;
+    playlist += `#EXTVLCOPT:http-user-agent=StreamPanel/1.0\n`;
+    playlist += `${serverUrl}/info\n\n`;
+    
+    channels.forEach((channel, index) => {
+      playlist += `#EXTINF:-1 tvg-id="${index + 1}" tvg-name="${channel.name}" tvg-logo="" group-title="Live TV",${channel.name}\n`;
+      playlist += `${serverUrl}/live/${user.username}/${user.password}/${index + 1}.m3u8\n`;
+    });
+
+    return playlist;
+  };
+
+  const handleDownloadPlaylist = (user: User, format: 'm3u' | 'm3u_plus') => {
+    const playlist = generateM3UPlaylist(user);
+    const blob = new Blob([playlist], { type: 'application/x-mpegurl' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${user.username}_playlist.m3u`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "Downloaded", description: `Playlist downloaded for ${user.username}` });
+  };
+
+  const handleCopyPlaylistUrl = (user: User) => {
+    const url = `http://panel.example.com/get.php?username=${user.username}&password=${user.password}&type=m3u_plus&output=ts`;
+    navigator.clipboard.writeText(url);
+    toast({ title: "Copied", description: "Playlist URL copied to clipboard" });
   };
 
   return (
@@ -214,13 +261,19 @@ const Users = () => {
                         </td>
                         <td className="py-4">
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleCopyCredentials(user)}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Download M3U" onClick={() => handleDownloadPlaylist(user, 'm3u')}>
+                              <Download className="h-4 w-4 text-primary" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy Playlist URL" onClick={() => handleCopyPlaylistUrl(user)}>
+                              <FileText className="h-4 w-4 text-primary" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy Credentials" onClick={() => handleCopyCredentials(user)}>
                               <Copy className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit User">
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteUser(user.id)}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Delete User" onClick={() => handleDeleteUser(user.id)}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
@@ -237,6 +290,28 @@ const Users = () => {
                 <p className="text-muted-foreground">No users found</p>
               </div>
             )}
+          </div>
+
+          {/* Playlist Info */}
+          <div className="mt-6 glass rounded-xl p-5">
+            <h3 className="text-lg font-semibold text-foreground mb-3">Playlist Formats</h3>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg bg-muted/50 p-4">
+                <Download className="h-6 w-6 text-primary mb-2" />
+                <h4 className="font-medium text-foreground">M3U Download</h4>
+                <p className="text-sm text-muted-foreground">Download playlist file directly to device</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-4">
+                <FileText className="h-6 w-6 text-primary mb-2" />
+                <h4 className="font-medium text-foreground">M3U URL</h4>
+                <p className="text-sm text-muted-foreground">Copy URL for IPTV apps and players</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-4">
+                <Copy className="h-6 w-6 text-primary mb-2" />
+                <h4 className="font-medium text-foreground">Credentials</h4>
+                <p className="text-sm text-muted-foreground">Copy username and password for manual setup</p>
+              </div>
+            </div>
           </div>
         </main>
       </div>
