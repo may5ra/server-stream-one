@@ -11,17 +11,16 @@ import { z } from 'zod';
 
 const authSchema = z.object({
   email: z.string().email('Unesite validnu email adresu'),
-  password: z.string().min(6, 'Lozinka mora imati najmanje 6 karaktera'),
+  password: z.string().min(1, 'Unesite lozinku'),
 });
 
 const Auth = () => {
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   
-  const { signIn, signUp } = useAuth();
+  const { signIn } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -51,52 +50,19 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      if (isLogin) {
-        const { error } = await signIn(email, password);
-        if (error) {
-          if (error.message.includes('Invalid login credentials')) {
-            toast({
-              title: 'Greška pri prijavi',
-              description: 'Pogrešan email ili lozinka.',
-              variant: 'destructive',
-            });
-          } else {
-            toast({
-              title: 'Greška pri prijavi',
-              description: error.message,
-              variant: 'destructive',
-            });
-          }
-        } else {
-          toast({
-            title: 'Uspješna prijava',
-            description: 'Dobrodošli u StreamPanel!',
-          });
-          navigate('/');
-        }
+      const { error } = await signIn(email, password);
+      if (error) {
+        toast({
+          title: 'Greška pri prijavi',
+          description: error.message,
+          variant: 'destructive',
+        });
       } else {
-        const { error } = await signUp(email, password);
-        if (error) {
-          if (error.message.includes('User already registered')) {
-            toast({
-              title: 'Greška pri registraciji',
-              description: 'Korisnik sa ovim emailom već postoji.',
-              variant: 'destructive',
-            });
-          } else {
-            toast({
-              title: 'Greška pri registraciji',
-              description: error.message,
-              variant: 'destructive',
-            });
-          }
-        } else {
-          toast({
-            title: 'Uspješna registracija',
-            description: 'Vaš nalog je kreiran. Možete se prijaviti.',
-          });
-          setIsLogin(true);
-        }
+        toast({
+          title: 'Uspješna prijava',
+          description: 'Dobrodošli u StreamPanel!',
+        });
+        navigate('/');
       }
     } finally {
       setLoading(false);
@@ -115,7 +81,7 @@ const Auth = () => {
           <div>
             <CardTitle className="text-2xl font-bold">StreamPanel</CardTitle>
             <CardDescription className="text-muted-foreground">
-              {isLogin ? 'Prijavite se na admin panel' : 'Kreirajte novi nalog'}
+              Prijavite se na admin panel
             </CardDescription>
           </div>
         </CardHeader>
@@ -127,7 +93,7 @@ const Auth = () => {
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@example.com"
+                placeholder="admin@panel.local"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="bg-secondary/50 border-border/50"
@@ -163,23 +129,19 @@ const Auth = () => {
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  {isLogin ? 'Prijava...' : 'Registracija...'}
+                  Prijava...
                 </>
               ) : (
-                isLogin ? 'Prijavi se' : 'Registruj se'
+                'Prijavi se'
               )}
             </Button>
           </form>
           
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-sm text-muted-foreground hover:text-primary transition-colors"
-              disabled={loading}
-            >
-              {isLogin ? 'Nemate nalog? Registrujte se' : 'Već imate nalog? Prijavite se'}
-            </button>
+          <div className="mt-6 p-3 rounded-lg bg-secondary/30 border border-border/30">
+            <p className="text-xs text-muted-foreground text-center">
+              <span className="font-medium text-foreground">Default kredencijali:</span><br />
+              admin@panel.local / admin123
+            </p>
           </div>
         </CardContent>
       </Card>
