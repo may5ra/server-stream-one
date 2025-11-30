@@ -14,6 +14,168 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_logs: {
+        Row: {
+          action: string
+          created_at: string
+          details: Json | null
+          id: string
+          ip_address: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          ip_address?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          ip_address?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      panel_settings: {
+        Row: {
+          created_at: string
+          id: string
+          key: string
+          updated_at: string
+          value: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          key: string
+          updated_at?: string
+          value?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          key?: string
+          updated_at?: string
+          value?: string | null
+        }
+        Relationships: []
+      }
+      servers: {
+        Row: {
+          cpu_usage: number | null
+          created_at: string
+          disk_usage: number | null
+          id: string
+          ip_address: string
+          location: string | null
+          memory_usage: number | null
+          name: string
+          network_usage: number | null
+          os: string | null
+          status: string
+          updated_at: string
+          uptime: string | null
+        }
+        Insert: {
+          cpu_usage?: number | null
+          created_at?: string
+          disk_usage?: number | null
+          id?: string
+          ip_address: string
+          location?: string | null
+          memory_usage?: number | null
+          name: string
+          network_usage?: number | null
+          os?: string | null
+          status?: string
+          updated_at?: string
+          uptime?: string | null
+        }
+        Update: {
+          cpu_usage?: number | null
+          created_at?: string
+          disk_usage?: number | null
+          id?: string
+          ip_address?: string
+          location?: string | null
+          memory_usage?: number | null
+          name?: string
+          network_usage?: number | null
+          os?: string | null
+          status?: string
+          updated_at?: string
+          uptime?: string | null
+        }
+        Relationships: []
+      }
+      streams: {
+        Row: {
+          abr_enabled: boolean | null
+          bitrate: number | null
+          created_at: string
+          dvr_duration: number | null
+          dvr_enabled: boolean | null
+          id: string
+          input_type: string
+          input_url: string
+          name: string
+          output_formats: string[] | null
+          resolution: string | null
+          status: string
+          updated_at: string
+          viewers: number | null
+          webvtt_enabled: boolean | null
+          webvtt_label: string | null
+          webvtt_language: string | null
+          webvtt_url: string | null
+        }
+        Insert: {
+          abr_enabled?: boolean | null
+          bitrate?: number | null
+          created_at?: string
+          dvr_duration?: number | null
+          dvr_enabled?: boolean | null
+          id?: string
+          input_type?: string
+          input_url: string
+          name: string
+          output_formats?: string[] | null
+          resolution?: string | null
+          status?: string
+          updated_at?: string
+          viewers?: number | null
+          webvtt_enabled?: boolean | null
+          webvtt_label?: string | null
+          webvtt_language?: string | null
+          webvtt_url?: string | null
+        }
+        Update: {
+          abr_enabled?: boolean | null
+          bitrate?: number | null
+          created_at?: string
+          dvr_duration?: number | null
+          dvr_enabled?: boolean | null
+          id?: string
+          input_type?: string
+          input_url?: string
+          name?: string
+          output_formats?: string[] | null
+          resolution?: string | null
+          status?: string
+          updated_at?: string
+          viewers?: number | null
+          webvtt_enabled?: boolean | null
+          webvtt_label?: string | null
+          webvtt_language?: string | null
+          webvtt_url?: string | null
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
