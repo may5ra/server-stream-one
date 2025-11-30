@@ -248,13 +248,13 @@ const Streams = () => {
     <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <div className="ml-64">
+      <div className="lg:ml-64">
         <Header />
         
-        <main className="p-6">
-          <div className="mb-6 flex items-center justify-between">
+        <main className="p-4 lg:p-6">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-2xl font-semibold text-foreground">Nimble Streamer</h2>
                 <Badge variant="outline" className="text-xs">WebVTT Enabled</Badge>
               </div>

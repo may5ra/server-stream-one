@@ -10,6 +10,9 @@ import Users from "./pages/Users";
 import Streams from "./pages/Streams";
 import Servers from "./pages/Servers";
 import Settings from "./pages/Settings";
+import Database from "./pages/Database";
+import Activity from "./pages/Activity";
+import Security from "./pages/Security";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -28,6 +31,9 @@ const App = () => (
             <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
             <Route path="/streams" element={<ProtectedRoute><Streams /></ProtectedRoute>} />
             <Route path="/servers" element={<ProtectedRoute><Servers /></ProtectedRoute>} />
+            <Route path="/database" element={<ProtectedRoute><Database /></ProtectedRoute>} />
+            <Route path="/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
+            <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -12,14 +12,14 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <div className="ml-64">
+      <div className="lg:ml-64">
         <Header />
         
-        <main className="p-6">
+        <main className="p-4 lg:p-6">
           {/* Page Title */}
           <div className="mb-6">
             <h2 className="text-2xl font-semibold text-foreground">Dashboard</h2>
-            <p className="text-muted-foreground">Welcome back, Admin. Here's your server overview.</p>
+            <p className="text-muted-foreground">Dobrodošli natrag. Evo pregleda servera.</p>
           </div>
 
           {/* Stats Grid */}

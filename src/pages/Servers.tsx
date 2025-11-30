@@ -112,14 +112,14 @@ const Servers = () => {
     <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <div className="ml-64">
+      <div className="lg:ml-64">
         <Header />
         
-        <main className="p-6">
-          <div className="mb-6 flex items-center justify-between">
+        <main className="p-4 lg:p-6">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold text-foreground">Servers</h2>
-              <p className="text-muted-foreground">Monitor and manage your server infrastructure</p>
+              <p className="text-muted-foreground">Upravljanje serverskom infrastrukturom</p>
             </div>
 
             <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>

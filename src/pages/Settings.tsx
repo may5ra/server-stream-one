@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Save, Shield, Bell, Globe, Database, Key } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -8,44 +8,99 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 
+const SETTINGS_KEY = 'streampanel_settings';
+const API_KEY_KEY = 'streampanel_api_key';
+
+const defaultSettings = {
+  serverName: "StreamPanel",
+  serverDomain: "panel.example.com",
+  adminEmail: "admin@example.com",
+  maxUsers: "5000",
+  maxConnections: "10000",
+  enableSSL: true,
+  enableBackup: true,
+  backupInterval: "24",
+  enableNotifications: true,
+  enableTwoFactor: false,
+  apiEnabled: true,
+  debugMode: false,
+};
+
+const generateApiKey = () => {
+  return 'sk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(24)))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+};
+
 const Settings = () => {
   const { toast } = useToast();
   
-  const [settings, setSettings] = useState({
-    serverName: "StreamPanel",
-    serverDomain: "panel.example.com",
-    adminEmail: "admin@example.com",
-    maxUsers: "5000",
-    maxConnections: "10000",
-    enableSSL: true,
-    enableBackup: true,
-    backupInterval: "24",
-    enableNotifications: true,
-    enableTwoFactor: false,
-    apiEnabled: true,
-    debugMode: false,
-  });
+  const [settings, setSettings] = useState(defaultSettings);
+  const [apiKey, setApiKey] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Load settings from localStorage
+    const savedSettings = localStorage.getItem(SETTINGS_KEY);
+    if (savedSettings) {
+      try {
+        setSettings(JSON.parse(savedSettings));
+      } catch {
+        setSettings(defaultSettings);
+      }
+    }
+    
+    // Load or generate API key
+    let savedApiKey = localStorage.getItem(API_KEY_KEY);
+    if (!savedApiKey) {
+      savedApiKey = generateApiKey();
+      localStorage.setItem(API_KEY_KEY, savedApiKey);
+    }
+    setApiKey(savedApiKey);
+    setLoading(false);
+  }, []);
 
   const handleSave = () => {
-    toast({ title: "Settings Saved", description: "Your settings have been updated successfully" });
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    toast({ title: "Spremljeno", description: "Postavke su uspješno spremljene" });
   };
+
+  const handleRegenerateKey = () => {
+    const newKey = generateApiKey();
+    setApiKey(newKey);
+    localStorage.setItem(API_KEY_KEY, newKey);
+    toast({ title: "Generirano", description: "Novi API ključ je generiran" });
+  };
+
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(apiKey);
+    toast({ title: "Kopirano", description: "API ključ kopiran u clipboard" });
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <div className="ml-64">
+      <div className="lg:ml-64">
         <Header />
         
-        <main className="p-6">
-          <div className="mb-6 flex items-center justify-between">
+        <main className="p-4 lg:p-6">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-semibold text-foreground">Settings</h2>
-              <p className="text-muted-foreground">Configure your server panel</p>
+              <h2 className="text-2xl font-semibold text-foreground">Postavke</h2>
+              <p className="text-muted-foreground">Konfiguracija server panela</p>
             </div>
             <Button variant="glow" onClick={handleSave}>
               <Save className="h-4 w-4" />
-              Save Changes
+              Spremi
             </Button>
           </div>
 
@@ -215,20 +270,28 @@ const Settings = () => {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
                 <Key className="h-5 w-5 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground">API Key</h3>
+              <h3 className="text-lg font-semibold text-foreground">API Ključ</h3>
             </div>
             
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Input
-                value="sk_live_xxxxxxxxxxxxxxxxxxxxxxxxx"
+                value={apiKey}
                 readOnly
-                className="flex-1 font-mono"
+                className="flex-1 font-mono text-xs sm:text-sm"
               />
-              <Button variant="outline">Regenerate</Button>
-              <Button variant="outline">Copy</Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleRegenerateKey} className="flex-1 sm:flex-none">
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Regeneriraj
+                </Button>
+                <Button variant="outline" onClick={handleCopyKey} className="flex-1 sm:flex-none">
+                  <Copy className="h-4 w-4 mr-1" />
+                  Kopiraj
+                </Button>
+              </div>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              Use this key to access the StreamPanel API. Keep it secret!
+              Koristi ovaj ključ za pristup StreamPanel API-ju. Čuvaj ga tajnim!
             </p>
           </div>
         </main>

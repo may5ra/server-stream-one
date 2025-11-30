@@ -30,10 +30,10 @@ export function UsersTable() {
     <div className="glass rounded-xl p-5 animate-fade-up" style={{ animationDelay: '0.2s' }}>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Recent Users</h3>
-          <p className="text-sm text-muted-foreground">User activity and status</p>
+          <h3 className="text-lg font-semibold text-foreground">Zadnji korisnici</h3>
+          <p className="text-sm text-muted-foreground">Aktivnost i status korisnika</p>
         </div>
-        <Button variant="outline" size="sm">View All</Button>
+        <Button variant="outline" size="sm">Prikaži sve</Button>
       </div>
 
       <div className="overflow-x-auto">
