@@ -1,27 +1,29 @@
 import { Cpu, HardDrive, MemoryStick, Network } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
-interface ServerMetric {
-  icon: React.ElementType;
-  label: string;
-  value: number;
-  unit: string;
-  color: string;
+interface ServerStatusProps {
+  avgCpu: number;
+  avgMemory: number;
+  avgDisk: number;
+  avgNetwork: number;
+  onlineServers: number;
 }
 
-const metrics: ServerMetric[] = [
-  { icon: Cpu, label: "CPU Usage", value: 42, unit: "%", color: "bg-primary" },
-  { icon: MemoryStick, label: "Memory", value: 67, unit: "%", color: "bg-warning" },
-  { icon: HardDrive, label: "Disk", value: 35, unit: "%", color: "bg-success" },
-  { icon: Network, label: "Network", value: 28, unit: "Mbps", color: "bg-accent" },
-];
+export function ServerStatus({ avgCpu, avgMemory, avgDisk, avgNetwork, onlineServers }: ServerStatusProps) {
+  const metrics = [
+    { icon: Cpu, label: "CPU", value: avgCpu, unit: "%", color: "bg-primary" },
+    { icon: MemoryStick, label: "Memorija", value: avgMemory, unit: "%", color: "bg-warning" },
+    { icon: HardDrive, label: "Disk", value: avgDisk, unit: "%", color: "bg-success" },
+    { icon: Network, label: "Mreža", value: avgNetwork, unit: "Mbps", color: "bg-accent" },
+  ];
 
-export function ServerStatus() {
   return (
     <div className="glass rounded-xl p-5 animate-fade-up" style={{ animationDelay: '0.15s' }}>
       <div className="mb-4">
-        <h3 className="text-lg font-semibold text-foreground">Server Resources</h3>
-        <p className="text-sm text-muted-foreground">Real-time system metrics</p>
+        <h3 className="text-lg font-semibold text-foreground">Server Resursi</h3>
+        <p className="text-sm text-muted-foreground">
+          {onlineServers > 0 ? `Prosjek od ${onlineServers} online servera` : "Nema online servera"}
+        </p>
       </div>
 
       <div className="space-y-4">
@@ -37,7 +39,7 @@ export function ServerStatus() {
               </span>
             </div>
             <Progress 
-              value={metric.value} 
+              value={metric.label === "Mreža" ? Math.min(metric.value, 100) : metric.value} 
               className="h-2"
             />
           </div>
@@ -46,12 +48,12 @@ export function ServerStatus() {
 
       <div className="mt-5 grid grid-cols-2 gap-3">
         <div className="rounded-lg bg-muted/50 p-3 text-center">
-          <p className="text-2xl font-semibold text-foreground">99.9%</p>
+          <p className="text-2xl font-semibold text-foreground">{onlineServers > 0 ? "99.9%" : "-"}</p>
           <p className="text-xs text-muted-foreground">Uptime</p>
         </div>
         <div className="rounded-lg bg-muted/50 p-3 text-center">
-          <p className="text-2xl font-semibold text-foreground">12ms</p>
-          <p className="text-xs text-muted-foreground">Latency</p>
+          <p className="text-2xl font-semibold text-foreground">{onlineServers > 0 ? "12ms" : "-"}</p>
+          <p className="text-xs text-muted-foreground">Latencija</p>
         </div>
       </div>
     </div>
