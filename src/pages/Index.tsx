@@ -1,13 +1,24 @@
-import { Users, Tv, Activity, HardDrive } from "lucide-react";
+import { Users, Tv, Activity, Server, RefreshCw } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { StatsCard } from "@/components/dashboard/StatsCard";
 import { ActivityChart } from "@/components/dashboard/ActivityChart";
-import { UsersTable } from "@/components/dashboard/UsersTable";
+import { StreamsTable } from "@/components/dashboard/StreamsTable";
 import { ServerStatus } from "@/components/dashboard/ServerStatus";
 import { QuickActions } from "@/components/dashboard/QuickActions";
+import { useDashboardStats } from "@/hooks/useDashboardStats";
 
 const Index = () => {
+  const { stats, recentStreams, servers, loading } = useDashboardStats();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
@@ -25,35 +36,35 @@ const Index = () => {
           {/* Stats Grid */}
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatsCard
-              title="Total Users"
-              value="1,284"
-              change="+12% from last month"
-              changeType="positive"
-              icon={Users}
+              title="Ukupno Streamova"
+              value={stats.totalStreams}
+              change={`${stats.activeStreams} aktivnih`}
+              changeType={stats.activeStreams > 0 ? "positive" : "neutral"}
+              icon={Tv}
               iconColor="text-primary"
             />
             <StatsCard
-              title="Active Streams"
-              value="342"
-              change="+8% from yesterday"
-              changeType="positive"
-              icon={Tv}
+              title="Aktivni Streamovi"
+              value={stats.activeStreams}
+              change={stats.activeStreams > 0 ? "Emitiranje uživo" : "Nema aktivnih"}
+              changeType={stats.activeStreams > 0 ? "positive" : "neutral"}
+              icon={Activity}
               iconColor="text-success"
             />
             <StatsCard
-              title="Active Connections"
-              value="892"
-              change="-3% from peak"
-              changeType="negative"
-              icon={Activity}
+              title="Gledatelji"
+              value={stats.totalViewers}
+              change="Ukupno trenutno"
+              changeType="neutral"
+              icon={Users}
               iconColor="text-warning"
             />
             <StatsCard
-              title="Bandwidth Used"
-              value="2.4 TB"
-              change="45% of monthly quota"
-              changeType="neutral"
-              icon={HardDrive}
+              title="Serveri"
+              value={`${stats.onlineServers}/${stats.totalServers}`}
+              change={stats.onlineServers === stats.totalServers && stats.totalServers > 0 ? "Svi online" : `${stats.totalServers - stats.onlineServers} offline`}
+              changeType={stats.onlineServers === stats.totalServers && stats.totalServers > 0 ? "positive" : stats.totalServers === 0 ? "neutral" : "negative"}
+              icon={Server}
               iconColor="text-primary"
             />
           </div>
@@ -67,15 +78,21 @@ const Index = () => {
             
             {/* Server Status */}
             <div>
-              <ServerStatus />
+              <ServerStatus 
+                avgCpu={stats.avgCpu}
+                avgMemory={stats.avgMemory}
+                avgDisk={stats.avgDisk}
+                avgNetwork={stats.avgNetwork}
+                onlineServers={stats.onlineServers}
+              />
             </div>
           </div>
 
           {/* Bottom Grid */}
           <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Users Table - 2 columns */}
+            {/* Streams Table - 2 columns */}
             <div className="lg:col-span-2">
-              <UsersTable />
+              <StreamsTable streams={recentStreams} />
             </div>
             
             {/* Quick Actions */}
