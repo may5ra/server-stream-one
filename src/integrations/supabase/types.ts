@@ -117,6 +117,9 @@ export type Database = {
         Row: {
           abr_enabled: boolean | null
           bitrate: number | null
+          bouquet: string | null
+          category: string | null
+          channel_number: number | null
           created_at: string
           dvr_duration: number | null
           dvr_enabled: boolean | null
@@ -137,6 +140,9 @@ export type Database = {
         Insert: {
           abr_enabled?: boolean | null
           bitrate?: number | null
+          bouquet?: string | null
+          category?: string | null
+          channel_number?: number | null
           created_at?: string
           dvr_duration?: number | null
           dvr_enabled?: boolean | null
@@ -157,6 +163,9 @@ export type Database = {
         Update: {
           abr_enabled?: boolean | null
           bitrate?: number | null
+          bouquet?: string | null
+          category?: string | null
+          channel_number?: number | null
           created_at?: string
           dvr_duration?: number | null
           dvr_enabled?: boolean | null

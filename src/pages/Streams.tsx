@@ -49,11 +49,33 @@ const Streams = () => {
     dvr_enabled: false,
     dvr_duration: 24,
     abr_enabled: false,
+    category: null,
+    bouquet: null,
+    channel_number: null,
   });
 
-  const filteredStreams = streams.filter(stream =>
-    stream.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredStreams = streams
+    .filter(stream => stream.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      // Sort by category first
+      if (a.category && !b.category) return -1;
+      if (!a.category && b.category) return 1;
+      if (a.category !== b.category) {
+        return (a.category || "").localeCompare(b.category || "");
+      }
+      
+      // Then by bouquet
+      if (a.bouquet && !b.bouquet) return -1;
+      if (!a.bouquet && b.bouquet) return 1;
+      if (a.bouquet !== b.bouquet) {
+        return (a.bouquet || "").localeCompare(b.bouquet || "");
+      }
+      
+      // Finally by channel number
+      if (a.channel_number && !b.channel_number) return -1;
+      if (!a.channel_number && b.channel_number) return 1;
+      return (a.channel_number || 0) - (b.channel_number || 0);
+    });
 
   const handleAddStream = async () => {
     if (!newStream.name || !newStream.input_url) return;
@@ -79,6 +101,9 @@ const Streams = () => {
       dvr_enabled: false,
       dvr_duration: 24,
       abr_enabled: false,
+      category: null,
+      bouquet: null,
+      channel_number: null,
     });
     setIsAddOpen(false);
   };
@@ -151,13 +176,45 @@ const Streams = () => {
                   </TabsList>
                   
                   <TabsContent value="basic" className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Naziv streama</Label>
-                      <Input
-                        value={newStream.name}
-                        onChange={(e) => setNewStream({ ...newStream, name: e.target.value })}
-                        placeholder="npr. Sports HD"
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Naziv streama</Label>
+                        <Input
+                          value={newStream.name}
+                          onChange={(e) => setNewStream({ ...newStream, name: e.target.value })}
+                          placeholder="npr. Sports HD"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>Broj kanala</Label>
+                        <Input
+                          type="number"
+                          value={newStream.channel_number || ""}
+                          onChange={(e) => setNewStream({ ...newStream, channel_number: e.target.value ? parseInt(e.target.value) : null })}
+                          placeholder="1"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Kategorija</Label>
+                        <Input
+                          value={newStream.category || ""}
+                          onChange={(e) => setNewStream({ ...newStream, category: e.target.value || null })}
+                          placeholder="Sport, Film, Vijesti..."
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>Bouquet</Label>
+                        <Input
+                          value={newStream.bouquet || ""}
+                          onChange={(e) => setNewStream({ ...newStream, bouquet: e.target.value || null })}
+                          placeholder="Basic, Premium..."
+                        />
+                      </div>
                     </div>
                     
                     <div className="space-y-2">
@@ -425,6 +482,15 @@ const Streams = () => {
                   </div>
                   
                   <div className="mb-3 flex flex-wrap gap-1.5">
+                    {stream.channel_number && (
+                      <Badge variant="secondary" className="text-xs font-bold">#{stream.channel_number}</Badge>
+                    )}
+                    {stream.category && (
+                      <Badge variant="outline" className="text-xs">{stream.category}</Badge>
+                    )}
+                    {stream.bouquet && (
+                      <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">{stream.bouquet}</Badge>
+                    )}
                     <Badge variant="secondary" className="text-xs">{inputTypeLabels[stream.input_type] || stream.input_type}</Badge>
                     {stream.output_formats?.map((format: string) => (
                       <Badge key={format} variant="outline" className="text-xs">{format.toUpperCase()}</Badge>
@@ -515,12 +581,38 @@ const Streams = () => {
                   </TabsList>
                   
                   <TabsContent value="basic" className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Naziv</Label>
-                      <Input
-                        value={editingStream.name}
-                        onChange={(e) => setEditingStream({ ...editingStream, name: e.target.value })}
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Naziv</Label>
+                        <Input
+                          value={editingStream.name}
+                          onChange={(e) => setEditingStream({ ...editingStream, name: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Broj kanala</Label>
+                        <Input
+                          type="number"
+                          value={editingStream.channel_number || ""}
+                          onChange={(e) => setEditingStream({ ...editingStream, channel_number: e.target.value ? parseInt(e.target.value) : null })}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Kategorija</Label>
+                        <Input
+                          value={editingStream.category || ""}
+                          onChange={(e) => setEditingStream({ ...editingStream, category: e.target.value || null })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Bouquet</Label>
+                        <Input
+                          value={editingStream.bouquet || ""}
+                          onChange={(e) => setEditingStream({ ...editingStream, bouquet: e.target.value || null })}
+                        />
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label>URL izvora</Label>
