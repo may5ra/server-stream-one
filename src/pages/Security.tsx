@@ -15,7 +15,6 @@ const Security = () => {
   
   const [showPassword, setShowPassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
@@ -47,7 +46,7 @@ const Security = () => {
       return;
     }
 
-    const { error } = await changePassword(passwordForm.currentPassword, passwordForm.newPassword);
+    const { error } = await changePassword(passwordForm.newPassword);
     
     if (error) {
       toast({ 
@@ -60,7 +59,7 @@ const Security = () => {
         title: "Uspješno", 
         description: "Lozinka je uspješno promijenjena" 
       });
-      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setPasswordForm({ newPassword: "", confirmPassword: "" });
     }
   };
 
@@ -96,12 +95,12 @@ const Security = () => {
               
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Trenutna lozinka</Label>
+                  <Label>Nova lozinka</Label>
                   <div className="relative">
                     <Input
                       type={showPassword ? "text" : "password"}
-                      value={passwordForm.currentPassword}
-                      onChange={(e) => setPasswordForm({...passwordForm, currentPassword: e.target.value})}
+                      value={passwordForm.newPassword}
+                      onChange={(e) => setPasswordForm({...passwordForm, newPassword: e.target.value})}
                     />
                     <button
                       type="button"
@@ -111,14 +110,6 @@ const Security = () => {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Nova lozinka</Label>
-                  <Input
-                    type={showPassword ? "text" : "password"}
-                    value={passwordForm.newPassword}
-                    onChange={(e) => setPasswordForm({...passwordForm, newPassword: e.target.value})}
-                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Potvrdi novu lozinku</Label>

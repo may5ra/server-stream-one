@@ -1,28 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Tv, Loader2 } from 'lucide-react';
 import { z } from 'zod';
 
 const authSchema = z.object({
   email: z.string().email('Unesite validnu email adresu'),
-  password: z.string().min(1, 'Unesite lozinku'),
+  password: z.string().min(6, 'Lozinka mora imati najmanje 6 karaktera'),
 });
 
 const Auth = () => {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   
-  const { signIn } = useAuth();
+  const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (user) {
+      navigate('/');
+    }
+  }, [user, navigate]);
 
   const validateForm = () => {
     try {
@@ -50,19 +58,27 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const { error } = await signIn(email, password);
+      const { error } = mode === 'login' 
+        ? await signIn(email, password)
+        : await signUp(email, password);
+        
       if (error) {
         toast({
-          title: 'Greška pri prijavi',
+          title: mode === 'login' ? 'Greška pri prijavi' : 'Greška pri registraciji',
           description: error.message,
           variant: 'destructive',
         });
       } else {
         toast({
-          title: 'Uspješna prijava',
-          description: 'Dobrodošli u StreamPanel!',
+          title: mode === 'login' ? 'Uspješna prijava' : 'Uspješna registracija',
+          description: mode === 'login' 
+            ? 'Dobrodošli u StreamPanel!' 
+            : 'Račun kreiran! Možete se prijaviti.',
         });
-        navigate('/');
+        if (mode === 'signup') {
+          setMode('login');
+          setPassword('');
+        }
       }
     } finally {
       setLoading(false);
@@ -87,62 +103,125 @@ const Auth = () => {
         </CardHeader>
         
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="admin@panel.local"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="bg-secondary/50 border-border/50"
-                disabled={loading}
-              />
-              {errors.email && (
-                <p className="text-sm text-destructive">{errors.email}</p>
-              )}
-            </div>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as 'login' | 'signup')} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="login">Prijava</TabsTrigger>
+              <TabsTrigger value="signup">Registracija</TabsTrigger>
+            </TabsList>
             
-            <div className="space-y-2">
-              <Label htmlFor="password">Lozinka</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="bg-secondary/50 border-border/50"
-                disabled={loading}
-              />
-              {errors.password && (
-                <p className="text-sm text-destructive">{errors.password}</p>
-              )}
-            </div>
+            <TabsContent value="login">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="vas@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="bg-secondary/50 border-border/50"
+                    disabled={loading}
+                  />
+                  {errors.email && (
+                    <p className="text-sm text-destructive">{errors.email}</p>
+                  )}
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="password">Lozinka</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="bg-secondary/50 border-border/50"
+                    disabled={loading}
+                  />
+                  {errors.password && (
+                    <p className="text-sm text-destructive">{errors.password}</p>
+                  )}
+                </div>
+                
+                <Button 
+                  type="submit" 
+                  className="w-full" 
+                  variant="glow"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Prijava...
+                    </>
+                  ) : (
+                    'Prijavi se'
+                  )}
+                </Button>
+              </form>
+            </TabsContent>
             
-            <Button 
-              type="submit" 
-              className="w-full" 
-              variant="glow"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Prijava...
-                </>
-              ) : (
-                'Prijavi se'
-              )}
-            </Button>
-          </form>
-          
-          <div className="mt-6 p-3 rounded-lg bg-secondary/30 border border-border/30">
-            <p className="text-xs text-muted-foreground text-center">
-              <span className="font-medium text-foreground">Default kredencijali:</span><br />
-              admin@panel.local / admin123
-            </p>
-          </div>
+            <TabsContent value="signup">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="signup-email">Email</Label>
+                  <Input
+                    id="signup-email"
+                    type="email"
+                    placeholder="vas@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="bg-secondary/50 border-border/50"
+                    disabled={loading}
+                  />
+                  {errors.email && (
+                    <p className="text-sm text-destructive">{errors.email}</p>
+                  )}
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="signup-password">Lozinka</Label>
+                  <Input
+                    id="signup-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="bg-secondary/50 border-border/50"
+                    disabled={loading}
+                  />
+                  {errors.password && (
+                    <p className="text-sm text-destructive">{errors.password}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Minimalno 6 karaktera
+                  </p>
+                </div>
+                
+                <Button 
+                  type="submit" 
+                  className="w-full" 
+                  variant="glow"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Registracija...
+                    </>
+                  ) : (
+                    'Registruj se'
+                  )}
+                </Button>
+              </form>
+              
+              <div className="mt-4 p-3 rounded-lg bg-info/10 border border-info/30">
+                <p className="text-xs text-info text-center">
+                  Prvi registrovani korisnik automatski postaje admin
+                </p>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>
