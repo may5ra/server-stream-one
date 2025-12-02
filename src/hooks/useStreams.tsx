@@ -19,6 +19,9 @@ export interface Stream {
   dvr_enabled: boolean;
   dvr_duration: number;
   abr_enabled: boolean;
+  category: string | null;
+  bouquet: string | null;
+  channel_number: number | null;
 }
 
 export const useStreams = () => {
@@ -62,6 +65,9 @@ export const useStreams = () => {
         dvr_enabled: stream.dvr_enabled,
         dvr_duration: stream.dvr_duration,
         abr_enabled: stream.abr_enabled,
+        category: stream.category,
+        bouquet: stream.bouquet,
+        channel_number: stream.channel_number,
         status: "inactive",
         viewers: 0,
       })
