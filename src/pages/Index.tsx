@@ -73,7 +73,11 @@ const Index = () => {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Chart - 2 columns */}
             <div className="lg:col-span-2">
-              <ActivityChart />
+              <ActivityChart 
+                servers={servers}
+                activeStreams={stats.activeStreams}
+                totalViewers={stats.totalViewers}
+              />
             </div>
             
             {/* Server Status */}
