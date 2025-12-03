@@ -113,6 +113,45 @@ export type Database = {
         }
         Relationships: []
       }
+      streaming_users: {
+        Row: {
+          connections: number | null
+          created_at: string
+          expiry_date: string
+          id: string
+          last_active: string | null
+          max_connections: number | null
+          password: string
+          status: string
+          updated_at: string
+          username: string
+        }
+        Insert: {
+          connections?: number | null
+          created_at?: string
+          expiry_date: string
+          id?: string
+          last_active?: string | null
+          max_connections?: number | null
+          password: string
+          status?: string
+          updated_at?: string
+          username: string
+        }
+        Update: {
+          connections?: number | null
+          created_at?: string
+          expiry_date?: string
+          id?: string
+          last_active?: string | null
+          max_connections?: number | null
+          password?: string
+          status?: string
+          updated_at?: string
+          username?: string
+        }
+        Relationships: []
+      }
       streams: {
         Row: {
           abr_enabled: boolean | null

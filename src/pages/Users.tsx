@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Search, Circle, Edit, Trash2, Copy, Download, FileText } from "lucide-react";
+import { Plus, Search, Circle, Edit, Trash2, Copy, Download, FileText, Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -7,27 +7,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-
-interface User {
-  id: string;
-  username: string;
-  password: string;
-  status: "online" | "offline" | "expired";
-  connections: number;
-  maxConnections: number;
-  expiry: string;
-  lastActive: string;
-  createdAt: string;
-}
-
-const initialUsers: User[] = [
-  { id: "1", username: "user_premium_01", password: "pass123", status: "online", connections: 2, maxConnections: 3, expiry: "2025-02-15", lastActive: "Now", createdAt: "2024-01-15" },
-  { id: "2", username: "stream_user_42", password: "stream42", status: "online", connections: 1, maxConnections: 2, expiry: "2025-01-30", lastActive: "2 min ago", createdAt: "2024-02-20" },
-  { id: "3", username: "client_vip_99", password: "vip99pass", status: "offline", connections: 0, maxConnections: 5, expiry: "2025-03-10", lastActive: "1 hour ago", createdAt: "2024-03-01" },
-  { id: "4", username: "viewer_basic_15", password: "basic15", status: "expired", connections: 0, maxConnections: 1, expiry: "2024-12-01", lastActive: "30 days ago", createdAt: "2024-06-10" },
-  { id: "5", username: "premium_stream_88", password: "prem88", status: "online", connections: 3, maxConnections: 3, expiry: "2025-06-20", lastActive: "Now", createdAt: "2024-04-05" },
-  { id: "6", username: "test_account_01", password: "test123", status: "offline", connections: 0, maxConnections: 2, expiry: "2025-04-15", lastActive: "5 hours ago", createdAt: "2024-05-12" },
-];
+import { useStreamingUsers, StreamingUser } from "@/hooks/useStreamingUsers";
+import { useSettings } from "@/hooks/useSettings";
+import { useStreams } from "@/hooks/useStreams";
 
 const statusConfig = {
   online: { color: "text-success", bg: "bg-success/20", label: "Online" },
@@ -35,102 +17,116 @@ const statusConfig = {
   expired: { color: "text-destructive", bg: "bg-destructive/20", label: "Expired" },
 };
 
-// Sample channels for playlist
-const channels = [
-  { name: "Sport 1 HD", url: "http://stream.example.com/sport1/playlist.m3u8" },
-  { name: "Sport 2 HD", url: "http://stream.example.com/sport2/playlist.m3u8" },
-  { name: "News 24", url: "http://stream.example.com/news24/playlist.m3u8" },
-  { name: "Movies HD", url: "http://stream.example.com/movies/playlist.m3u8" },
-  { name: "Music Channel", url: "http://stream.example.com/music/playlist.m3u8" },
-  { name: "Documentary", url: "http://stream.example.com/docs/playlist.m3u8" },
-  { name: "Kids TV", url: "http://stream.example.com/kids/playlist.m3u8" },
-  { name: "Series HD", url: "http://stream.example.com/series/playlist.m3u8" },
-];
-
 const Users = () => {
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const { users, loading, addUser, updateUser, deleteUser } = useStreamingUsers();
+  const { settings } = useSettings();
+  const { streams } = useStreams();
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<StreamingUser | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
   const [newUser, setNewUser] = useState({
     username: "",
     password: "",
-    maxConnections: "1",
-    expiry: "",
+    max_connections: "1",
+    expiry_date: "",
   });
 
   const filteredUsers = users.filter(user =>
     user.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleAddUser = () => {
-    if (!newUser.username || !newUser.password || !newUser.expiry) {
+  const getServerUrl = () => {
+    const domain = settings.serverDomain || "your-server.com";
+    const protocol = settings.enableSSL ? "https" : "http";
+    return `${protocol}://${domain}`;
+  };
+
+  const handleAddUser = async () => {
+    if (!newUser.username || !newUser.password || !newUser.expiry_date) {
       toast({ title: "Error", description: "Please fill all fields", variant: "destructive" });
       return;
     }
 
-    const user: User = {
-      id: Date.now().toString(),
-      username: newUser.username,
-      password: newUser.password,
-      status: "offline",
-      connections: 0,
-      maxConnections: parseInt(newUser.maxConnections),
-      expiry: newUser.expiry,
-      lastActive: "Never",
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-
-    setUsers([...users, user]);
-    setNewUser({ username: "", password: "", maxConnections: "1", expiry: "" });
-    setIsAddOpen(false);
-    toast({ title: "Success", description: "User created successfully" });
+    setIsSubmitting(true);
+    try {
+      await addUser({
+        username: newUser.username,
+        password: newUser.password,
+        max_connections: parseInt(newUser.max_connections),
+        expiry_date: newUser.expiry_date,
+      });
+      setNewUser({ username: "", password: "", max_connections: "1", expiry_date: "" });
+      setIsAddOpen(false);
+      toast({ title: "Success", description: "User created successfully" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDeleteUser = (id: string) => {
-    setUsers(users.filter(u => u.id !== id));
-    toast({ title: "Deleted", description: "User has been removed" });
+  const handleDeleteUser = async (id: string) => {
+    try {
+      await deleteUser(id);
+      toast({ title: "Deleted", description: "User has been removed" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
   };
 
-  const handleEditUser = (user: User) => {
+  const handleEditUser = (user: StreamingUser) => {
     setEditingUser(user);
     setIsEditOpen(true);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingUser) return;
     
-    setUsers(users.map(u => u.id === editingUser.id ? editingUser : u));
-    setIsEditOpen(false);
-    setEditingUser(null);
-    toast({ title: "Updated", description: "User updated successfully" });
+    setIsSubmitting(true);
+    try {
+      await updateUser(editingUser.id, {
+        username: editingUser.username,
+        password: editingUser.password,
+        max_connections: editingUser.max_connections,
+        expiry_date: editingUser.expiry_date,
+        status: editingUser.status,
+      });
+      setIsEditOpen(false);
+      setEditingUser(null);
+      toast({ title: "Updated", description: "User updated successfully" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleCopyCredentials = (user: User) => {
+  const handleCopyCredentials = (user: StreamingUser) => {
     navigator.clipboard.writeText(`Username: ${user.username}\nPassword: ${user.password}`);
     toast({ title: "Copied", description: "Credentials copied to clipboard" });
   };
 
-  const generateM3UPlaylist = (user: User) => {
-    const serverUrl = "http://panel.example.com";
+  const generateM3UPlaylist = (user: StreamingUser) => {
+    const serverUrl = getServerUrl();
     
     let playlist = `#EXTM3U\n`;
-    playlist += `#EXTINF:-1 tvg-id="" tvg-name="StreamPanel" tvg-logo="" group-title="Info",StreamPanel - ${user.username}\n`;
-    playlist += `#EXTVLCOPT:http-user-agent=StreamPanel/1.0\n`;
+    playlist += `#EXTINF:-1 tvg-id="" tvg-name="${settings.serverName}" tvg-logo="" group-title="Info",${settings.serverName} - ${user.username}\n`;
+    playlist += `#EXTVLCOPT:http-user-agent=${settings.serverName}/1.0\n`;
     playlist += `${serverUrl}/info\n\n`;
     
-    channels.forEach((channel, index) => {
-      playlist += `#EXTINF:-1 tvg-id="${index + 1}" tvg-name="${channel.name}" tvg-logo="" group-title="Live TV",${channel.name}\n`;
+    streams.forEach((stream, index) => {
+      playlist += `#EXTINF:-1 tvg-id="${stream.id}" tvg-name="${stream.name}" tvg-logo="" group-title="${stream.category || 'Live TV'}",${stream.name}\n`;
       playlist += `${serverUrl}/live/${user.username}/${user.password}/${index + 1}.m3u8\n`;
     });
 
     return playlist;
   };
 
-  const handleDownloadPlaylist = (user: User, format: 'm3u' | 'm3u_plus') => {
+  const handleDownloadPlaylist = (user: StreamingUser) => {
     const playlist = generateM3UPlaylist(user);
     const blob = new Blob([playlist], { type: 'application/x-mpegurl' });
     const url = URL.createObjectURL(blob);
@@ -144,11 +140,29 @@ const Users = () => {
     toast({ title: "Downloaded", description: `Playlist downloaded for ${user.username}` });
   };
 
-  const handleCopyPlaylistUrl = (user: User) => {
-    const url = `http://panel.example.com/get.php?username=${user.username}&password=${user.password}&type=m3u_plus&output=ts`;
+  const handleCopyPlaylistUrl = (user: StreamingUser) => {
+    const serverUrl = getServerUrl();
+    const url = `${serverUrl}/get.php?username=${user.username}&password=${user.password}&type=m3u_plus&output=ts`;
     navigator.clipboard.writeText(url);
     toast({ title: "Copied", description: "Playlist URL copied to clipboard" });
   };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString();
+  };
+
+  const formatLastActive = (lastActive: string | null) => {
+    if (!lastActive) return "Never";
+    return new Date(lastActive).toLocaleString();
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -161,7 +175,7 @@ const Users = () => {
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold text-foreground">Users</h2>
-              <p className="text-muted-foreground">Upravljanje korisnicima</p>
+              <p className="text-muted-foreground">Upravljanje korisnicima ({users.length})</p>
             </div>
             
             <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
@@ -198,8 +212,8 @@ const Users = () => {
                     <Label>Max Connections</Label>
                     <Input
                       type="number"
-                      value={newUser.maxConnections}
-                      onChange={(e) => setNewUser({ ...newUser, maxConnections: e.target.value })}
+                      value={newUser.max_connections}
+                      onChange={(e) => setNewUser({ ...newUser, max_connections: e.target.value })}
                       min="1"
                       max="10"
                     />
@@ -208,11 +222,12 @@ const Users = () => {
                     <Label>Expiry Date</Label>
                     <Input
                       type="date"
-                      value={newUser.expiry}
-                      onChange={(e) => setNewUser({ ...newUser, expiry: e.target.value })}
+                      value={newUser.expiry_date}
+                      onChange={(e) => setNewUser({ ...newUser, expiry_date: e.target.value })}
                     />
                   </div>
-                  <Button onClick={handleAddUser} className="w-full" variant="glow">
+                  <Button onClick={handleAddUser} className="w-full" variant="glow" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Create User
                   </Button>
                 </div>
@@ -248,8 +263,8 @@ const Users = () => {
                       <Label>Max Connections</Label>
                       <Input
                         type="number"
-                        value={editingUser.maxConnections}
-                        onChange={(e) => setEditingUser({ ...editingUser, maxConnections: parseInt(e.target.value) || 1 })}
+                        value={editingUser.max_connections}
+                        onChange={(e) => setEditingUser({ ...editingUser, max_connections: parseInt(e.target.value) || 1 })}
                         min="1"
                         max="10"
                       />
@@ -258,15 +273,15 @@ const Users = () => {
                       <Label>Expiry Date</Label>
                       <Input
                         type="date"
-                        value={editingUser.expiry}
-                        onChange={(e) => setEditingUser({ ...editingUser, expiry: e.target.value })}
+                        value={editingUser.expiry_date}
+                        onChange={(e) => setEditingUser({ ...editingUser, expiry_date: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Status</Label>
                       <select
                         value={editingUser.status}
-                        onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value as User['status'] })}
+                        onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value as StreamingUser['status'] })}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         <option value="online">Online</option>
@@ -274,7 +289,8 @@ const Users = () => {
                         <option value="expired">Expired</option>
                       </select>
                     </div>
-                    <Button onClick={handleSaveEdit} className="w-full" variant="glow">
+                    <Button onClick={handleSaveEdit} className="w-full" variant="glow" disabled={isSubmitting}>
+                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                       Save Changes
                     </Button>
                   </div>
@@ -327,21 +343,21 @@ const Users = () => {
                         </td>
                         <td className="py-4">
                           <span className="text-sm text-foreground">
-                            {user.connections}/{user.maxConnections}
+                            {user.connections}/{user.max_connections}
                           </span>
                         </td>
                         <td className="py-4">
-                          <span className="font-mono text-sm text-muted-foreground">{user.expiry}</span>
+                          <span className="font-mono text-sm text-muted-foreground">{formatDate(user.expiry_date)}</span>
                         </td>
                         <td className="py-4">
-                          <span className="font-mono text-sm text-muted-foreground">{user.createdAt}</span>
+                          <span className="font-mono text-sm text-muted-foreground">{formatDate(user.created_at)}</span>
                         </td>
                         <td className="py-4">
-                          <span className="text-sm text-muted-foreground">{user.lastActive}</span>
+                          <span className="text-sm text-muted-foreground">{formatLastActive(user.last_active)}</span>
                         </td>
                         <td className="py-4">
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Download M3U" onClick={() => handleDownloadPlaylist(user, 'm3u')}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Download M3U" onClick={() => handleDownloadPlaylist(user)}>
                               <Download className="h-4 w-4 text-primary" />
                             </Button>
                             <Button variant="ghost" size="icon" className="h-8 w-8" title="Copy Playlist URL" onClick={() => handleCopyPlaylistUrl(user)}>
@@ -368,6 +384,10 @@ const Users = () => {
             {filteredUsers.length === 0 && (
               <div className="py-12 text-center">
                 <p className="text-muted-foreground">No users found</p>
+                <Button variant="outline" className="mt-4" onClick={() => setIsAddOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add your first user
+                </Button>
               </div>
             )}
           </div>
@@ -379,19 +399,26 @@ const Users = () => {
               <div className="rounded-lg bg-muted/50 p-4">
                 <Download className="h-6 w-6 text-primary mb-2" />
                 <h4 className="font-medium text-foreground">M3U Download</h4>
-                <p className="text-sm text-muted-foreground">Download playlist file directly to device</p>
+                <p className="text-sm text-muted-foreground">Download playlist file directly</p>
               </div>
               <div className="rounded-lg bg-muted/50 p-4">
                 <FileText className="h-6 w-6 text-primary mb-2" />
                 <h4 className="font-medium text-foreground">M3U URL</h4>
-                <p className="text-sm text-muted-foreground">Copy URL for IPTV apps and players</p>
+                <p className="text-sm text-muted-foreground">Copy playlist URL for IPTV apps</p>
               </div>
               <div className="rounded-lg bg-muted/50 p-4">
                 <Copy className="h-6 w-6 text-primary mb-2" />
                 <h4 className="font-medium text-foreground">Credentials</h4>
-                <p className="text-sm text-muted-foreground">Copy username and password for manual setup</p>
+                <p className="text-sm text-muted-foreground">Copy username and password</p>
               </div>
             </div>
+            {settings.serverDomain && (
+              <div className="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
+                <p className="text-sm text-foreground">
+                  <strong>Server URL:</strong> {getServerUrl()}
+                </p>
+              </div>
+            )}
           </div>
         </main>
       </div>
