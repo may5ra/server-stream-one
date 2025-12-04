@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw } from "lucide-react";
+import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw, Server, Play, ExternalLink } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,11 @@ const defaultSettings = {
   enableTwoFactor: false,
   apiEnabled: true,
   debugMode: false,
+  // Streaming server config
+  streamServerIp: "",
+  streamServerPort: "1935",
+  streamHlsPath: "/live",
+  streamUseSSL: false,
 };
 
 const generateApiKey = () => {
@@ -262,6 +267,114 @@ const Settings = () => {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Streaming Server Configuration */}
+          <div className="mt-6 glass rounded-xl p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/20">
+                <Server className="h-5 w-5 text-destructive" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">Streaming Server</h3>
+            </div>
+            
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Server IP / Hostname</Label>
+                <Input
+                  placeholder="38.18.100.86 ili stream.example.com"
+                  value={settings.streamServerIp}
+                  onChange={(e) => setSettings({ ...settings, streamServerIp: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>RTMP Port</Label>
+                <Input
+                  type="number"
+                  placeholder="1935"
+                  value={settings.streamServerPort}
+                  onChange={(e) => setSettings({ ...settings, streamServerPort: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>HLS Path</Label>
+                <Input
+                  placeholder="/live"
+                  value={settings.streamHlsPath}
+                  onChange={(e) => setSettings({ ...settings, streamHlsPath: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center justify-between pt-6">
+                <div>
+                  <Label>Koristi SSL (HTTPS)</Label>
+                  <p className="text-sm text-muted-foreground">Za stream URL-ove</p>
+                </div>
+                <Switch
+                  checked={settings.streamUseSSL}
+                  onCheckedChange={(checked) => setSettings({ ...settings, streamUseSSL: checked })}
+                />
+              </div>
+            </div>
+
+            {/* Test Stream URL Generator */}
+            <div className="mt-6 p-4 rounded-lg bg-muted/50 border border-border">
+              <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
+                <Play className="h-4 w-4" />
+                Test Stream URL
+              </h4>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label className="text-sm">Stream ime za test</Label>
+                  <Input
+                    id="testStreamName"
+                    placeholder="hbo, sport1, movie..."
+                    defaultValue="hbo"
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <div className="p-3 bg-background rounded-md border border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Generirani URL:</p>
+                  <code className="text-sm text-primary break-all">
+                    {settings.streamServerIp 
+                      ? `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}${settings.streamHlsPath || '/live'}/[stream]/playlist.m3u8`
+                      : 'Unesi Server IP za generiranje URL-a'}
+                  </code>
+                </div>
+                {settings.streamServerIp && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        navigator.clipboard.writeText(url);
+                        toast({ title: "Kopirano", description: "Stream URL kopiran" });
+                      }}
+                    >
+                      <Copy className="h-3 w-3 mr-1" />
+                      Kopiraj URL
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        window.open(url, '_blank');
+                      }}
+                    >
+                      <ExternalLink className="h-3 w-3 mr-1" />
+                      Otvori u novom tabu
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm text-muted-foreground">
+              Konfiguriraj adresu streaming servera (nginx-rtmp, FFmpeg, itd.) za generiranje ispravnih stream URL-ova.
+            </p>
           </div>
 
           {/* API Key Section */}
