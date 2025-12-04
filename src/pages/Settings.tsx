@@ -27,8 +27,23 @@ const defaultSettings = {
   // Streaming server config
   streamServerIp: "",
   streamServerPort: "1935",
+  streamHttpPort: "8080",
   streamHlsPath: "/live",
   streamUseSSL: false,
+  // Advanced streaming config
+  hlsSegmentDuration: "2",
+  hlsPlaylistLength: "6",
+  ffmpegPath: "/usr/bin/ffmpeg",
+  recordingsPath: "/var/www/recordings",
+  enableTranscoding: false,
+  transcodingPreset: "medium",
+  transcodingBitrate: "4000",
+  enableDVR: false,
+  dvrDuration: "24",
+  allowedCodecs: "h264,aac",
+  maxBitrate: "8000",
+  enableAuth: false,
+  streamKeyPrefix: "live_",
 };
 
 const generateApiKey = () => {
@@ -278,46 +293,212 @@ const Settings = () => {
               <h3 className="text-lg font-semibold text-foreground">Streaming Server</h3>
             </div>
             
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Server IP / Hostname</Label>
-                <Input
-                  placeholder="38.18.100.86 ili stream.example.com"
-                  value={settings.streamServerIp}
-                  onChange={(e) => setSettings({ ...settings, streamServerIp: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>RTMP Port</Label>
-                <Input
-                  type="number"
-                  placeholder="1935"
-                  value={settings.streamServerPort}
-                  onChange={(e) => setSettings({ ...settings, streamServerPort: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>HLS Path</Label>
-                <Input
-                  placeholder="/live"
-                  value={settings.streamHlsPath}
-                  onChange={(e) => setSettings({ ...settings, streamHlsPath: e.target.value })}
-                />
-              </div>
-              <div className="flex items-center justify-between pt-6">
-                <div>
-                  <Label>Koristi SSL (HTTPS)</Label>
-                  <p className="text-sm text-muted-foreground">Za stream URL-ove</p>
+            {/* Basic Connection */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">Osnovna konekcija</h4>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-2">
+                  <Label>Server IP / Hostname</Label>
+                  <Input
+                    placeholder="38.18.100.86"
+                    value={settings.streamServerIp}
+                    onChange={(e) => setSettings({ ...settings, streamServerIp: e.target.value })}
+                  />
                 </div>
-                <Switch
-                  checked={settings.streamUseSSL}
-                  onCheckedChange={(checked) => setSettings({ ...settings, streamUseSSL: checked })}
-                />
+                <div className="space-y-2">
+                  <Label>RTMP Port</Label>
+                  <Input
+                    type="number"
+                    placeholder="1935"
+                    value={settings.streamServerPort}
+                    onChange={(e) => setSettings({ ...settings, streamServerPort: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>HTTP Port (HLS)</Label>
+                  <Input
+                    type="number"
+                    placeholder="8080"
+                    value={settings.streamHttpPort}
+                    onChange={(e) => setSettings({ ...settings, streamHttpPort: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>HLS Path</Label>
+                  <Input
+                    placeholder="/live"
+                    value={settings.streamHlsPath}
+                    onChange={(e) => setSettings({ ...settings, streamHlsPath: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* HLS Configuration */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">HLS Konfiguracija</h4>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-2">
+                  <Label>Segment Duration (s)</Label>
+                  <Input
+                    type="number"
+                    placeholder="2"
+                    value={settings.hlsSegmentDuration}
+                    onChange={(e) => setSettings({ ...settings, hlsSegmentDuration: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Playlist Length</Label>
+                  <Input
+                    type="number"
+                    placeholder="6"
+                    value={settings.hlsPlaylistLength}
+                    onChange={(e) => setSettings({ ...settings, hlsPlaylistLength: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Bitrate (kbps)</Label>
+                  <Input
+                    type="number"
+                    placeholder="8000"
+                    value={settings.maxBitrate}
+                    onChange={(e) => setSettings({ ...settings, maxBitrate: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Allowed Codecs</Label>
+                  <Input
+                    placeholder="h264,aac"
+                    value={settings.allowedCodecs}
+                    onChange={(e) => setSettings({ ...settings, allowedCodecs: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Paths */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">Putanje</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>FFmpeg Path</Label>
+                  <Input
+                    placeholder="/usr/bin/ffmpeg"
+                    value={settings.ffmpegPath}
+                    onChange={(e) => setSettings({ ...settings, ffmpegPath: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Recordings Path</Label>
+                  <Input
+                    placeholder="/var/www/recordings"
+                    value={settings.recordingsPath}
+                    onChange={(e) => setSettings({ ...settings, recordingsPath: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Transcoding */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">Transcoding</h4>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="flex items-center justify-between col-span-1">
+                  <div>
+                    <Label>Enable Transcoding</Label>
+                    <p className="text-xs text-muted-foreground">Re-encode streams</p>
+                  </div>
+                  <Switch
+                    checked={settings.enableTranscoding}
+                    onCheckedChange={(checked) => setSettings({ ...settings, enableTranscoding: checked })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Preset</Label>
+                  <Input
+                    placeholder="medium"
+                    value={settings.transcodingPreset}
+                    onChange={(e) => setSettings({ ...settings, transcodingPreset: e.target.value })}
+                    disabled={!settings.enableTranscoding}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Bitrate (kbps)</Label>
+                  <Input
+                    type="number"
+                    placeholder="4000"
+                    value={settings.transcodingBitrate}
+                    onChange={(e) => setSettings({ ...settings, transcodingBitrate: e.target.value })}
+                    disabled={!settings.enableTranscoding}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Features */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">Značajke</h4>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>SSL/HTTPS</Label>
+                    <p className="text-xs text-muted-foreground">Za stream URL-ove</p>
+                  </div>
+                  <Switch
+                    checked={settings.streamUseSSL}
+                    onCheckedChange={(checked) => setSettings({ ...settings, streamUseSSL: checked })}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>DVR/Timeshift</Label>
+                    <p className="text-xs text-muted-foreground">Snimanje streamova</p>
+                  </div>
+                  <Switch
+                    checked={settings.enableDVR}
+                    onCheckedChange={(checked) => setSettings({ ...settings, enableDVR: checked })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>DVR Duration (h)</Label>
+                  <Input
+                    type="number"
+                    placeholder="24"
+                    value={settings.dvrDuration}
+                    onChange={(e) => setSettings({ ...settings, dvrDuration: e.target.value })}
+                    disabled={!settings.enableDVR}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Stream Auth</Label>
+                    <p className="text-xs text-muted-foreground">Zahtjev za auth</p>
+                  </div>
+                  <Switch
+                    checked={settings.enableAuth}
+                    onCheckedChange={(checked) => setSettings({ ...settings, enableAuth: checked })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Stream Key */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">Stream Key</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Stream Key Prefix</Label>
+                  <Input
+                    placeholder="live_"
+                    value={settings.streamKeyPrefix}
+                    onChange={(e) => setSettings({ ...settings, streamKeyPrefix: e.target.value })}
+                  />
+                </div>
               </div>
             </div>
 
             {/* Test Stream URL Generator */}
-            <div className="mt-6 p-4 rounded-lg bg-muted/50 border border-border">
+            <div className="p-4 rounded-lg bg-muted/50 border border-border">
               <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
                 <Play className="h-4 w-4" />
                 Test Stream URL
@@ -336,7 +517,7 @@ const Settings = () => {
                   <p className="text-xs text-muted-foreground mb-1">Generirani URL:</p>
                   <code className="text-sm text-primary break-all">
                     {settings.streamServerIp 
-                      ? `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}${settings.streamHlsPath || '/live'}/[stream]/playlist.m3u8`
+                      ? `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/[stream]/playlist.m3u8`
                       : 'Unesi Server IP za generiranje URL-a'}
                   </code>
                 </div>
@@ -347,7 +528,7 @@ const Settings = () => {
                       size="sm"
                       onClick={() => {
                         const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
                         navigator.clipboard.writeText(url);
                         toast({ title: "Kopirano", description: "Stream URL kopiran" });
                       }}
@@ -360,7 +541,7 @@ const Settings = () => {
                       size="sm"
                       onClick={() => {
                         const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
                         window.open(url, '_blank');
                       }}
                     >
