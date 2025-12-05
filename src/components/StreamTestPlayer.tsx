@@ -1,8 +1,20 @@
 import { useState, useRef, useEffect } from "react";
 import Hls from "hls.js";
-import { Play, Pause, Volume2, VolumeX, AlertCircle, Loader2, X, Maximize } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, AlertCircle, Loader2, Maximize, Subtitles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+interface SubtitleTrack {
+  id: number;
+  name: string;
+  lang?: string;
+}
 
 interface StreamTestPlayerProps {
   open: boolean;
@@ -18,6 +30,8 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
   const [isMuted, setIsMuted] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  const [activeSubtitle, setActiveSubtitle] = useState<number>(-1);
 
   useEffect(() => {
     if (!open || !streamUrl || !videoRef.current) return;
@@ -25,6 +39,8 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
     setError(null);
     setLoading(true);
     setIsPlaying(false);
+    setSubtitleTracks([]);
+    setActiveSubtitle(-1);
 
     const video = videoRef.current;
 
@@ -48,14 +64,46 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         setLoading(false);
+        console.log("HLS manifest parsed, subtitle tracks:", hls.subtitleTracks);
+        
+        // Collect subtitle tracks
+        if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+          const tracks = hls.subtitleTracks.map((track, index) => ({
+            id: index,
+            name: track.name || track.lang || `Subtitle ${index + 1}`,
+            lang: track.lang,
+          }));
+          setSubtitleTracks(tracks);
+          console.log("Found subtitle tracks:", tracks);
+        }
+        
         video.play().then(() => {
           setIsPlaying(true);
         }).catch((e) => {
           console.log("Autoplay blocked:", e);
           setLoading(false);
         });
+      });
+
+      // Listen for subtitle track switch
+      hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_, data) => {
+        console.log("Subtitle track switched to:", data.id);
+        setActiveSubtitle(data.id);
+      });
+
+      // Listen for subtitle tracks updated
+      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
+        console.log("Subtitle tracks updated:", data.subtitleTracks);
+        if (data.subtitleTracks && data.subtitleTracks.length > 0) {
+          const tracks = data.subtitleTracks.map((track, index) => ({
+            id: index,
+            name: track.name || track.lang || `Subtitle ${index + 1}`,
+            lang: track.lang,
+          }));
+          setSubtitleTracks(tracks);
+        }
       });
 
       hls.on(Hls.Events.ERROR, (_, data) => {
@@ -79,6 +127,23 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
       video.src = streamUrl;
       video.addEventListener("loadedmetadata", () => {
         setLoading(false);
+        
+        // Check for native text tracks in Safari
+        if (video.textTracks && video.textTracks.length > 0) {
+          const tracks: SubtitleTrack[] = [];
+          for (let i = 0; i < video.textTracks.length; i++) {
+            const track = video.textTracks[i];
+            if (track.kind === 'subtitles' || track.kind === 'captions') {
+              tracks.push({
+                id: i,
+                name: track.label || track.language || `Subtitle ${i + 1}`,
+                lang: track.language,
+              });
+            }
+          }
+          setSubtitleTracks(tracks);
+        }
+        
         video.play().then(() => setIsPlaying(true)).catch(() => setLoading(false));
       });
       video.addEventListener("error", () => {
@@ -121,6 +186,32 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
       document.exitFullscreen();
     } else {
       videoRef.current.requestFullscreen();
+    }
+  };
+
+  const setSubtitleTrack = (trackId: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.subtitleTrack = trackId;
+      setActiveSubtitle(trackId);
+      console.log("Setting subtitle track to:", trackId);
+    } else if (videoRef.current && videoRef.current.textTracks) {
+      // Safari native
+      for (let i = 0; i < videoRef.current.textTracks.length; i++) {
+        videoRef.current.textTracks[i].mode = i === trackId ? 'showing' : 'hidden';
+      }
+      setActiveSubtitle(trackId);
+    }
+  };
+
+  const disableSubtitles = () => {
+    if (hlsRef.current) {
+      hlsRef.current.subtitleTrack = -1;
+      setActiveSubtitle(-1);
+    } else if (videoRef.current && videoRef.current.textTracks) {
+      for (let i = 0; i < videoRef.current.textTracks.length; i++) {
+        videoRef.current.textTracks[i].mode = 'hidden';
+      }
+      setActiveSubtitle(-1);
     }
   };
 
@@ -169,7 +260,48 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:bg-white/20" onClick={toggleMute}>
                   {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                 </Button>
+                
+                {/* Subtitle selector */}
+                {subtitleTracks.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className={`h-8 w-8 text-white hover:bg-white/20 ${activeSubtitle >= 0 ? 'bg-white/20' : ''}`}
+                      >
+                        <Subtitles className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center" className="min-w-[150px]">
+                      <DropdownMenuItem 
+                        onClick={disableSubtitles}
+                        className={activeSubtitle === -1 ? 'bg-accent' : ''}
+                      >
+                        Isključeno
+                      </DropdownMenuItem>
+                      {subtitleTracks.map((track) => (
+                        <DropdownMenuItem
+                          key={track.id}
+                          onClick={() => setSubtitleTrack(track.id)}
+                          className={activeSubtitle === track.id ? 'bg-accent' : ''}
+                        >
+                          {track.name} {track.lang && `(${track.lang})`}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                
                 <div className="flex-1" />
+                
+                {/* Subtitle indicator */}
+                {subtitleTracks.length > 0 && (
+                  <span className="text-xs text-white/70">
+                    {subtitleTracks.length} titl{subtitleTracks.length === 1 ? '' : 'ova'}
+                  </span>
+                )}
+                
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:bg-white/20" onClick={toggleFullscreen}>
                   <Maximize className="h-4 w-4" />
                 </Button>
@@ -182,6 +314,16 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
           <p className="text-xs text-muted-foreground">
             <strong>URL:</strong> <code className="break-all">{streamUrl}</code>
           </p>
+          {subtitleTracks.length > 0 && (
+            <p className="text-xs text-green-500 mt-1">
+              ✓ Pronađeno {subtitleTracks.length} subtitle track{subtitleTracks.length === 1 ? '' : 'ova'}
+            </p>
+          )}
+          {!loading && !error && subtitleTracks.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Nema embedded titlova u ovom streamu
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
