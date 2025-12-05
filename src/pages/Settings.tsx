@@ -68,11 +68,13 @@ const Settings = () => {
   const [sshControlOpen, setSshControlOpen] = useState(false);
 
   useEffect(() => {
-    // Load settings from localStorage
+    // Load settings from localStorage and merge with defaults
     const savedSettings = localStorage.getItem(SETTINGS_KEY);
     if (savedSettings) {
       try {
-        setSettings(JSON.parse(savedSettings));
+        const parsed = JSON.parse(savedSettings);
+        // Merge saved settings with defaults to ensure new fields are included
+        setSettings({ ...defaultSettings, ...parsed });
       } catch {
         setSettings(defaultSettings);
       }
