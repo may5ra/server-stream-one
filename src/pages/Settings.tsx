@@ -589,6 +589,36 @@ const Settings = () => {
               </div>
             </div>
 
+            {/* Server Tools - Prominent Section */}
+            <div className="mt-6 p-4 rounded-lg bg-primary/10 border-2 border-primary/30">
+              <h4 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                <Terminal className="h-5 w-5 text-primary" />
+                Alati za server
+              </h4>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button 
+                  variant="outline" 
+                  className="flex-1 justify-center"
+                  onClick={() => setSshControlOpen(true)}
+                >
+                  <Terminal className="h-4 w-4 mr-2" />
+                  SSH Kontrola
+                </Button>
+                <Button 
+                  variant="default" 
+                  className="flex-1 justify-center"
+                  onClick={() => setNginxConfigOpen(true)}
+                >
+                  <FileCode className="h-4 w-4 mr-2" />
+                  Generiraj nginx.conf
+                </Button>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm text-muted-foreground">
+              Konfiguriraj adresu streaming servera (nginx-rtmp, FFmpeg, itd.) za generiranje ispravnih stream URL-ova.
+            </p>
+
             <StreamTestPlayer 
               open={testPlayerOpen} 
               onOpenChange={setTestPlayerOpen} 
@@ -606,25 +636,6 @@ const Settings = () => {
               open={sshControlOpen}
               onOpenChange={setSshControlOpen}
             />
-
-            {/* Server Tools */}
-            <div className="mt-4 p-4 rounded-lg bg-muted/30 border border-border">
-              <h4 className="font-medium text-foreground mb-3">Alati za server</h4>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" onClick={() => setSshControlOpen(true)}>
-                  <Terminal className="h-4 w-4 mr-1" />
-                  SSH Kontrola
-                </Button>
-                <Button variant="default" size="sm" onClick={() => setNginxConfigOpen(true)}>
-                  <FileCode className="h-4 w-4 mr-1" />
-                  Generiraj nginx.conf
-                </Button>
-              </div>
-            </div>
-
-            <p className="mt-4 text-sm text-muted-foreground">
-              Konfiguriraj adresu streaming servera (nginx-rtmp, FFmpeg, itd.) za generiranje ispravnih stream URL-ova.
-            </p>
           </div>
 
           {/* API Key Section */}
