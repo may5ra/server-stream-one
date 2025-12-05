@@ -1,1 +1,4 @@
 project_id = "nzrfekddelcojckpauqi"
+
+[functions.ssh-command]
+verify_jwt = false

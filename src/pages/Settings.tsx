@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
-import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw, Server, Play, ExternalLink } from "lucide-react";
+import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw, Server, Play, ExternalLink, Terminal, FileCode } from "lucide-react";
 import { StreamTestPlayer } from "@/components/StreamTestPlayer";
+import { NginxConfigGenerator } from "@/components/NginxConfigGenerator";
+import { ServerSSHControl } from "@/components/ServerSSHControl";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -62,6 +64,8 @@ const Settings = () => {
   const [testPlayerOpen, setTestPlayerOpen] = useState(false);
   const [testStreamUrl, setTestStreamUrl] = useState('');
   const [testStreamName, setTestStreamName] = useState('');
+  const [nginxConfigOpen, setNginxConfigOpen] = useState(false);
+  const [sshControlOpen, setSshControlOpen] = useState(false);
 
   useEffect(() => {
     // Load settings from localStorage
@@ -290,11 +294,23 @@ const Settings = () => {
 
           {/* Streaming Server Configuration */}
           <div className="mt-6 glass rounded-xl p-6">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/20">
-                <Server className="h-5 w-5 text-destructive" />
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/20">
+                  <Server className="h-5 w-5 text-destructive" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">Streaming Server</h3>
               </div>
-              <h3 className="text-lg font-semibold text-foreground">Streaming Server</h3>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setSshControlOpen(true)}>
+                  <Terminal className="h-4 w-4 mr-1" />
+                  SSH Kontrola
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setNginxConfigOpen(true)}>
+                  <FileCode className="h-4 w-4 mr-1" />
+                  Generiraj nginx.conf
+                </Button>
+              </div>
             </div>
             
             {/* Basic Connection */}
@@ -576,6 +592,17 @@ const Settings = () => {
               onOpenChange={setTestPlayerOpen} 
               streamUrl={testStreamUrl}
               streamName={testStreamName}
+            />
+
+            <NginxConfigGenerator 
+              open={nginxConfigOpen}
+              onOpenChange={setNginxConfigOpen}
+              settings={settings}
+            />
+
+            <ServerSSHControl 
+              open={sshControlOpen}
+              onOpenChange={setSshControlOpen}
             />
 
             <p className="mt-4 text-sm text-muted-foreground">
