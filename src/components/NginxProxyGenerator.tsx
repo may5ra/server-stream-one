@@ -200,19 +200,19 @@ ${streams.map(s => {
     
     try {
       const { data, error } = await supabase.functions.invoke('deploy-proxy-config', {
-        body: { serverIp, httpPort }
+        body: { serverIp, httpPort, action: 'deploy' }
       });
 
       if (error) throw error;
 
       if (data.success) {
         setDeployResult({
-          commands: data.commands,
-          streamMappings: data.streamMappings
+          commands: [],
+          streamMappings: data.streamMappings || []
         });
         toast({ 
-          title: "Config generiran!", 
-          description: `Kopiraj naredbe i pokreni na serveru. ${data.streamMappings.length} streamova.` 
+          title: "Uspješno deplojirano!", 
+          description: data.message || `Config primijenjen na server.`
         });
       } else {
         throw new Error(data.error || 'Deploy failed');
@@ -222,6 +222,29 @@ ${streams.map(s => {
       toast({ title: "Greška", description: errorMessage, variant: "destructive" });
     } finally {
       setDeploying(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('deploy-proxy-config', {
+        body: { serverIp, httpPort, action: 'health' }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        toast({ title: "Agent dostupan!", description: "Povezivanje uspješno." });
+      } else {
+        throw new Error(data.error || 'Agent not reachable');
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast({ 
+        title: "Agent nedostupan", 
+        description: `${errorMessage}. Instaliraj agent na server.`, 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -235,6 +258,15 @@ ${streams.map(s => {
           </DialogTitle>
         </DialogHeader>
         
+        {/* Agent Install Instructions */}
+        <div className="mb-3 p-3 rounded-lg bg-muted/50 border border-border">
+          <p className="text-xs font-medium mb-2">1. Instaliraj agent na server (jednom):</p>
+          <code className="text-xs bg-background p-2 rounded block mb-2">
+            curl -sSL https://vps-stream-panel.lovable.app/install-agent.sh | AGENT_SECRET=your_secret sudo bash
+          </code>
+          <p className="text-xs text-muted-foreground">Zamijeni <code>your_secret</code> sa sigurnom lozinkom i dodaj istu u Secrets kao AGENT_SECRET</p>
+        </div>
+
         <div className="flex flex-wrap gap-2 mb-3">
           <Button variant="outline" size="sm" onClick={handleCopy}>
             {copied ? <Check className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
@@ -248,6 +280,9 @@ ${streams.map(s => {
             <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
             Osvježi
           </Button>
+          <Button variant="secondary" size="sm" onClick={handleTestConnection}>
+            Test Agent
+          </Button>
           <Button 
             variant="default" 
             size="sm" 
@@ -255,43 +290,22 @@ ${streams.map(s => {
             disabled={deploying || streams.length === 0}
           >
             {deploying ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
-            {deploying ? 'Generiram...' : 'Generiraj naredbe'}
+            {deploying ? 'Deployam...' : 'Deploy na Server'}
           </Button>
         </div>
 
-        {deployResult && (
-          <div className="mb-3 p-3 rounded-lg bg-primary/10 border border-primary/30">
-            <p className="text-sm font-medium mb-2">Pokreni ove naredbe na serveru:</p>
-            <div className="bg-background rounded p-2 mb-2">
-              <code className="text-xs block whitespace-pre-wrap">
-                {deployResult.commands.join(' && \\\n')}
-              </code>
-            </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                navigator.clipboard.writeText(deployResult.commands.join(' && '));
-                toast({ title: "Kopirano", description: "Naredbe kopirane" });
-              }}
-            >
-              <Copy className="h-3 w-3 mr-1" />
-              Kopiraj naredbe
-            </Button>
-            
-            {deployResult.streamMappings.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <p className="text-xs font-medium mb-1">Proxy URL-ovi:</p>
-                <div className="space-y-1">
-                  {deployResult.streamMappings.map((s, i) => (
-                    <div key={i} className="text-xs">
-                      <span className="text-muted-foreground">{s.name}:</span>{' '}
-                      <code className="text-primary">{s.proxyUrl}</code>
-                    </div>
-                  ))}
+        {deployResult && deployResult.streamMappings.length > 0 && (
+          <div className="mb-3 p-3 rounded-lg bg-green-500/10 border border-green-500/30">
+            <p className="text-sm font-medium text-green-600 mb-2">✓ Config uspješno primijenjen!</p>
+            <p className="text-xs font-medium mb-1">Proxy URL-ovi:</p>
+            <div className="space-y-1">
+              {deployResult.streamMappings.map((s, i) => (
+                <div key={i} className="text-xs">
+                  <span className="text-muted-foreground">{s.name}:</span>{' '}
+                  <code className="text-primary">{s.proxyUrl}</code>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         )}
 

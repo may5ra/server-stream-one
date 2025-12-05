@@ -79,21 +79,53 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { serverIp, httpPort } = await req.json()
+    const { serverIp, httpPort, action } = await req.json()
     
-    console.log(`Deploying proxy config to server: ${serverIp}:${httpPort}`)
+    // Get agent settings from secrets
+    const agentHost = Deno.env.get('SSH_HOST') || serverIp
+    const agentPort = Deno.env.get('AGENT_PORT') || '9876'
+    const agentSecret = Deno.env.get('AGENT_SECRET')
 
-    // Get SSH credentials
-    const sshHost = Deno.env.get('SSH_HOST')
-    const sshUsername = Deno.env.get('SSH_USERNAME')
-    const sshPassword = Deno.env.get('SSH_PASSWORD')
-
-    if (!sshHost || !sshUsername || !sshPassword) {
-      console.error('SSH credentials not configured')
+    if (!agentSecret) {
+      console.error('AGENT_SECRET not configured')
       return new Response(
-        JSON.stringify({ error: 'SSH credentials not configured. Configure them in Settings.' }),
+        JSON.stringify({ 
+          error: 'Agent secret not configured',
+          instructions: 'Add AGENT_SECRET in Secrets settings'
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
+    }
+
+    const agentUrl = `http://${agentHost}:${agentPort}`
+    console.log(`Connecting to agent at: ${agentUrl}`)
+
+    // If just testing connection
+    if (action === 'health') {
+      try {
+        const healthCheck = await fetch(agentUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${agentSecret}`
+          },
+          body: JSON.stringify({ action: 'health' })
+        })
+        const healthData = await healthCheck.json()
+        return new Response(
+          JSON.stringify({ success: true, agent: healthData }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Cannot connect to agent',
+            details: err instanceof Error ? err.message : 'Unknown error'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
     }
 
     // Fetch streams from database
@@ -109,7 +141,7 @@ Deno.serve(async (req) => {
     if (dbError) {
       console.error('Database error:', dbError)
       return new Response(
-        JSON.stringify({ error: 'Failed to fetch streams from database' }),
+        JSON.stringify({ error: 'Failed to fetch streams' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -123,30 +155,43 @@ Deno.serve(async (req) => {
 
     console.log(`Found ${externalStreams.length} external streams`)
 
-    // Generate the config
-    const config = generateProxyConfig(externalStreams, serverIp || sshHost, httpPort)
+    // Generate config
+    const config = generateProxyConfig(externalStreams, serverIp || agentHost, httpPort)
     
-    // Escape the config for shell command
-    const escapedConfig = config.replace(/'/g, "'\\''")
-    
-    // Commands to deploy the config
-    const commands = [
-      `echo '${escapedConfig}' | sudo tee /etc/nginx/sites-available/stream-proxy > /dev/null`,
-      `sudo ln -sf /etc/nginx/sites-available/stream-proxy /etc/nginx/sites-enabled/stream-proxy`,
-      `sudo nginx -t`,
-      `sudo systemctl reload nginx`
-    ]
+    // Send to agent
+    console.log('Sending config to agent...')
+    const agentResponse = await fetch(agentUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${agentSecret}`
+      },
+      body: JSON.stringify({
+        action: 'write-config',
+        config: config
+      })
+    })
 
-    console.log('Deploying config via SSH...')
-    
-    // For now, return the config and commands since Deno Deploy doesn't support SSH directly
-    // In production, you'd use a service that can execute SSH commands
-    
+    const agentResult = await agentResponse.json()
+    console.log('Agent response:', agentResult)
+
+    if (!agentResponse.ok) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: agentResult.error || 'Agent error',
+          details: agentResult
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Generate stream mappings
     const streamMappings = externalStreams.map((s: Stream) => {
       const streamName = s.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
       return {
         name: s.name,
-        proxyUrl: `http://${serverIp || sshHost}:${httpPort}/proxy/${streamName}/index.m3u8`,
+        proxyUrl: `http://${serverIp || agentHost}:${httpPort}/proxy/${streamName}/index.m3u8`,
         originalUrl: s.input_url
       }
     })
@@ -154,14 +199,9 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true,
-        message: `Config generated for ${externalStreams.length} streams`,
-        config: config,
-        commands: commands,
-        streamMappings: streamMappings,
-        instructions: [
-          'SSH to your server and run these commands:',
-          ...commands
-        ]
+        message: `Config deployed! ${externalStreams.length} streams configured.`,
+        agentResult: agentResult,
+        streamMappings: streamMappings
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
