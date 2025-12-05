@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download } from "lucide-react";
+import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useStreams, Stream } from "@/hooks/useStreams";
 import { useSettings } from "@/hooks/useSettings";
+import { StreamTestPlayer } from "@/components/StreamTestPlayer";
 
 const statusConfig = {
   live: { color: "text-success", bg: "bg-success/20", label: "Live" },
@@ -34,6 +35,7 @@ const Streams = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingStream, setEditingStream] = useState<Stream | null>(null);
+  const [testingStream, setTestingStream] = useState<Stream | null>(null);
 
   const [newStream, setNewStream] = useState({
     name: "",
@@ -531,6 +533,14 @@ const Streams = () => {
                     <Button 
                       variant="outline" 
                       size="sm"
+                      onClick={() => setTestingStream(stream)}
+                      title="Test Stream"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
                       onClick={() => handleDownloadM3U8(stream)}
                       title="Download M3U8"
                     >
@@ -683,6 +693,17 @@ const Streams = () => {
               </Button>
             </DialogContent>
           </Dialog>
+
+          {/* Stream Test Player */}
+          <StreamTestPlayer 
+            open={!!testingStream}
+            onOpenChange={(open) => !open && setTestingStream(null)}
+            streamUrl={testingStream?.input_url || ''}
+            streamName={testingStream?.name || ''}
+            webvttUrl={testingStream?.webvtt_enabled ? testingStream.webvtt_url : null}
+            webvttLabel={testingStream?.webvtt_label}
+            webvttLanguage={testingStream?.webvtt_language}
+          />
         </main>
       </div>
     </div>
