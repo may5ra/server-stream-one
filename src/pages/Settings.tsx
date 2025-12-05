@@ -296,21 +296,21 @@ const Settings = () => {
 
           {/* Streaming Server Configuration */}
           <div className="mt-6 glass rounded-xl p-6">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/20">
                   <Server className="h-5 w-5 text-destructive" />
                 </div>
                 <h3 className="text-lg font-semibold text-foreground">Streaming Server</h3>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => setSshControlOpen(true)}>
                   <Terminal className="h-4 w-4 mr-1" />
-                  SSH Kontrola
+                  SSH
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setNginxConfigOpen(true)}>
                   <FileCode className="h-4 w-4 mr-1" />
-                  Generiraj nginx.conf
+                  nginx.conf
                 </Button>
               </div>
             </div>
