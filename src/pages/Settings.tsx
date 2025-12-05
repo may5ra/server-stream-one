@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw, Server, Play, ExternalLink, Terminal, FileCode } from "lucide-react";
 import { StreamTestPlayer } from "@/components/StreamTestPlayer";
 import { NginxConfigGenerator } from "@/components/NginxConfigGenerator";
+import { NginxProxyGenerator } from "@/components/NginxProxyGenerator";
 import { ServerSSHControl } from "@/components/ServerSSHControl";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -66,6 +67,7 @@ const Settings = () => {
   const [testStreamName, setTestStreamName] = useState('');
   const [nginxConfigOpen, setNginxConfigOpen] = useState(false);
   const [sshControlOpen, setSshControlOpen] = useState(false);
+  const [proxyConfigOpen, setProxyConfigOpen] = useState(false);
 
   useEffect(() => {
     // Load settings from localStorage and merge with defaults
@@ -595,10 +597,10 @@ const Settings = () => {
                 <Terminal className="h-5 w-5 text-primary" />
                 Alati za server
               </h4>
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <Button 
                   variant="outline" 
-                  className="flex-1 justify-center"
+                  className="justify-center"
                   onClick={() => setSshControlOpen(true)}
                 >
                   <Terminal className="h-4 w-4 mr-2" />
@@ -606,11 +608,19 @@ const Settings = () => {
                 </Button>
                 <Button 
                   variant="default" 
-                  className="flex-1 justify-center"
+                  className="justify-center"
                   onClick={() => setNginxConfigOpen(true)}
                 >
                   <FileCode className="h-4 w-4 mr-2" />
-                  Generiraj nginx.conf
+                  nginx.conf
+                </Button>
+                <Button 
+                  variant="secondary" 
+                  className="justify-center"
+                  onClick={() => setProxyConfigOpen(true)}
+                >
+                  <Globe className="h-4 w-4 mr-2" />
+                  Proxy Config
                 </Button>
               </div>
             </div>
@@ -635,6 +645,13 @@ const Settings = () => {
             <ServerSSHControl 
               open={sshControlOpen}
               onOpenChange={setSshControlOpen}
+            />
+
+            <NginxProxyGenerator 
+              open={proxyConfigOpen}
+              onOpenChange={setProxyConfigOpen}
+              serverIp={settings.streamServerIp}
+              httpPort={settings.streamHttpPort}
             />
           </div>
 
