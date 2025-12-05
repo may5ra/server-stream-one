@@ -607,6 +607,21 @@ const Settings = () => {
               onOpenChange={setSshControlOpen}
             />
 
+            {/* Server Tools */}
+            <div className="mt-4 p-4 rounded-lg bg-muted/30 border border-border">
+              <h4 className="font-medium text-foreground mb-3">Alati za server</h4>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => setSshControlOpen(true)}>
+                  <Terminal className="h-4 w-4 mr-1" />
+                  SSH Kontrola
+                </Button>
+                <Button variant="default" size="sm" onClick={() => setNginxConfigOpen(true)}>
+                  <FileCode className="h-4 w-4 mr-1" />
+                  Generiraj nginx.conf
+                </Button>
+              </div>
+            </div>
+
             <p className="mt-4 text-sm text-muted-foreground">
               Konfiguriraj adresu streaming servera (nginx-rtmp, FFmpeg, itd.) za generiranje ispravnih stream URL-ova.
             </p>
