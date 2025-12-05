@@ -14,6 +14,7 @@ interface SubtitleTrack {
   id: number;
   name: string;
   lang?: string;
+  isExternal?: boolean;
 }
 
 interface StreamTestPlayerProps {
@@ -21,9 +22,20 @@ interface StreamTestPlayerProps {
   onOpenChange: (open: boolean) => void;
   streamUrl: string;
   streamName: string;
+  webvttUrl?: string | null;
+  webvttLabel?: string | null;
+  webvttLanguage?: string | null;
 }
 
-export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: StreamTestPlayerProps) => {
+export const StreamTestPlayer = ({ 
+  open, 
+  onOpenChange, 
+  streamUrl, 
+  streamName,
+  webvttUrl,
+  webvttLabel,
+  webvttLanguage 
+}: StreamTestPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -32,6 +44,29 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
   const [loading, setLoading] = useState(true);
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [activeSubtitle, setActiveSubtitle] = useState<number>(-1);
+
+  // Add external WebVTT track to video element
+  const addExternalSubtitle = (video: HTMLVideoElement) => {
+    if (!webvttUrl) return;
+    
+    // Remove existing external tracks
+    const existingTracks = video.querySelectorAll('track[data-external="true"]');
+    existingTracks.forEach(t => t.remove());
+    
+    // Create new track element
+    const track = document.createElement('track');
+    track.kind = 'subtitles';
+    track.label = webvttLabel || 'Subtitles';
+    track.srclang = webvttLanguage || 'hr';
+    track.src = webvttUrl;
+    track.default = false;
+    track.setAttribute('data-external', 'true');
+    
+    video.appendChild(track);
+    console.log("Added external WebVTT track:", webvttUrl);
+    
+    return track;
+  };
 
   useEffect(() => {
     if (!open || !streamUrl || !videoRef.current) return;
@@ -68,16 +103,34 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
         setLoading(false);
         console.log("HLS manifest parsed, subtitle tracks:", hls.subtitleTracks);
         
-        // Collect subtitle tracks
+        const tracks: SubtitleTrack[] = [];
+        
+        // Collect embedded subtitle tracks from HLS
         if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-          const tracks = hls.subtitleTracks.map((track, index) => ({
-            id: index,
-            name: track.name || track.lang || `Subtitle ${index + 1}`,
-            lang: track.lang,
-          }));
-          setSubtitleTracks(tracks);
-          console.log("Found subtitle tracks:", tracks);
+          hls.subtitleTracks.forEach((track, index) => {
+            tracks.push({
+              id: index,
+              name: track.name || track.lang || `Subtitle ${index + 1}`,
+              lang: track.lang,
+              isExternal: false,
+            });
+          });
+          console.log("Found embedded subtitle tracks:", tracks);
         }
+        
+        // Add external WebVTT if configured
+        if (webvttUrl) {
+          addExternalSubtitle(video);
+          tracks.push({
+            id: 1000, // Special ID for external track
+            name: webvttLabel || 'External Subtitles',
+            lang: webvttLanguage || 'hr',
+            isExternal: true,
+          });
+          console.log("Added external subtitle track from settings");
+        }
+        
+        setSubtitleTracks(tracks);
         
         video.play().then(() => {
           setIsPlaying(true);
@@ -161,7 +214,7 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
         hlsRef.current = null;
       }
     };
-  }, [open, streamUrl]);
+  }, [open, streamUrl, webvttUrl, webvttLabel, webvttLanguage]);
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -189,30 +242,59 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
     }
   };
 
-  const setSubtitleTrack = (trackId: number) => {
+  const setSubtitleTrack = (trackId: number, isExternal?: boolean) => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    // Handle external WebVTT track
+    if (isExternal && trackId === 1000) {
+      // Disable HLS subtitles
+      if (hlsRef.current) {
+        hlsRef.current.subtitleTrack = -1;
+      }
+      // Enable external track
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i];
+        if (track.label === (webvttLabel || 'Subtitles')) {
+          track.mode = 'showing';
+        } else {
+          track.mode = 'hidden';
+        }
+      }
+      setActiveSubtitle(trackId);
+      console.log("Enabled external subtitle track");
+      return;
+    }
+    
+    // Handle HLS embedded subtitles
     if (hlsRef.current) {
       hlsRef.current.subtitleTrack = trackId;
+      // Disable external tracks
+      for (let i = 0; i < video.textTracks.length; i++) {
+        video.textTracks[i].mode = 'hidden';
+      }
       setActiveSubtitle(trackId);
-      console.log("Setting subtitle track to:", trackId);
-    } else if (videoRef.current && videoRef.current.textTracks) {
+      console.log("Setting HLS subtitle track to:", trackId);
+    } else if (video.textTracks) {
       // Safari native
-      for (let i = 0; i < videoRef.current.textTracks.length; i++) {
-        videoRef.current.textTracks[i].mode = i === trackId ? 'showing' : 'hidden';
+      for (let i = 0; i < video.textTracks.length; i++) {
+        video.textTracks[i].mode = i === trackId ? 'showing' : 'hidden';
       }
       setActiveSubtitle(trackId);
     }
   };
 
   const disableSubtitles = () => {
+    const video = videoRef.current;
     if (hlsRef.current) {
       hlsRef.current.subtitleTrack = -1;
-      setActiveSubtitle(-1);
-    } else if (videoRef.current && videoRef.current.textTracks) {
-      for (let i = 0; i < videoRef.current.textTracks.length; i++) {
-        videoRef.current.textTracks[i].mode = 'hidden';
-      }
-      setActiveSubtitle(-1);
     }
+    if (video && video.textTracks) {
+      for (let i = 0; i < video.textTracks.length; i++) {
+        video.textTracks[i].mode = 'hidden';
+      }
+    }
+    setActiveSubtitle(-1);
   };
 
   return (
@@ -283,10 +365,10 @@ export const StreamTestPlayer = ({ open, onOpenChange, streamUrl, streamName }: 
                       {subtitleTracks.map((track) => (
                         <DropdownMenuItem
                           key={track.id}
-                          onClick={() => setSubtitleTrack(track.id)}
+                          onClick={() => setSubtitleTrack(track.id, track.isExternal)}
                           className={activeSubtitle === track.id ? 'bg-accent' : ''}
                         >
-                          {track.name} {track.lang && `(${track.lang})`}
+                          {track.name} {track.lang && `(${track.lang})`} {track.isExternal && '⬇'}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuContent>
