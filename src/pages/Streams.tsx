@@ -115,7 +115,7 @@ const Streams = () => {
   };
 
   const handleDownloadM3U8 = (stream: Stream) => {
-    const url = getStreamUrl(stream.name.toLowerCase().replace(/\s+/g, '-'));
+    const url = getStreamUrl(stream.name, stream.input_type, stream.input_url);
     const content = `#EXTM3U\n#EXTINF:-1,${stream.name}\n${url}`;
     const blob = new Blob([content], { type: 'application/x-mpegurl' });
     const link = document.createElement('a');
