@@ -539,7 +539,7 @@ const Settings = () => {
                   <p className="text-xs text-muted-foreground mb-1">Generirani URL:</p>
                   <code className="text-sm text-primary break-all">
                     {settings.streamServerIp 
-                      ? `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/[stream]/playlist.m3u8`
+                      ? `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/[stream]/index.m3u8`
                       : 'Unesi Server IP za generiranje URL-a'}
                   </code>
                 </div>
@@ -550,7 +550,7 @@ const Settings = () => {
                       size="sm"
                       onClick={() => {
                         const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/index.m3u8`;
                         navigator.clipboard.writeText(url);
                         toast({ title: "Kopirano", description: "Stream URL kopiran" });
                       }}
@@ -563,7 +563,7 @@ const Settings = () => {
                       size="sm"
                       onClick={() => {
                         const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/index.m3u8`;
                         window.open(url, '_blank');
                       }}
                     >
@@ -575,7 +575,7 @@ const Settings = () => {
                       size="sm"
                       onClick={() => {
                         const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/index.m3u8`;
                         setTestStreamUrl(url);
                         setTestStreamName(streamName);
                         setTestPlayerOpen(true);
