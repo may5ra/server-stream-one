@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw, Server, Play, ExternalLink } from "lucide-react";
+import { StreamTestPlayer } from "@/components/StreamTestPlayer";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,9 @@ const Settings = () => {
   const [settings, setSettings] = useState(defaultSettings);
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(true);
+  const [testPlayerOpen, setTestPlayerOpen] = useState(false);
+  const [testStreamUrl, setTestStreamUrl] = useState('');
+  const [testStreamName, setTestStreamName] = useState('');
 
   useEffect(() => {
     // Load settings from localStorage
@@ -548,10 +552,31 @@ const Settings = () => {
                       <ExternalLink className="h-3 w-3 mr-1" />
                       Otvori u novom tabu
                     </Button>
+                    <Button 
+                      variant="default" 
+                      size="sm"
+                      onClick={() => {
+                        const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/playlist.m3u8`;
+                        setTestStreamUrl(url);
+                        setTestStreamName(streamName);
+                        setTestPlayerOpen(true);
+                      }}
+                    >
+                      <Play className="h-3 w-3 mr-1" />
+                      Testiraj Stream
+                    </Button>
                   </div>
                 )}
               </div>
             </div>
+
+            <StreamTestPlayer 
+              open={testPlayerOpen} 
+              onOpenChange={setTestPlayerOpen} 
+              streamUrl={testStreamUrl}
+              streamName={testStreamName}
+            />
 
             <p className="mt-4 text-sm text-muted-foreground">
               Konfiguriraj adresu streaming servera (nginx-rtmp, FFmpeg, itd.) za generiranje ispravnih stream URL-ova.
