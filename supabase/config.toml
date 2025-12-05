@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.stream-proxy]
 verify_jwt = false
+
+[functions.deploy-proxy-config]
+verify_jwt = false
