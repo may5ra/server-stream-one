@@ -65,7 +65,6 @@ const Settings = () => {
   const [testPlayerOpen, setTestPlayerOpen] = useState(false);
   const [testStreamUrl, setTestStreamUrl] = useState('');
   const [testStreamName, setTestStreamName] = useState('');
-  const [testStreamInputName, setTestStreamInputName] = useState('hbo');
   const [nginxConfigOpen, setNginxConfigOpen] = useState(false);
   const [sshControlOpen, setSshControlOpen] = useState(false);
   const [proxyConfigOpen, setProxyConfigOpen] = useState(false);
@@ -534,8 +533,7 @@ const Settings = () => {
                   <Input
                     id="testStreamName"
                     placeholder="hbo, sport1, movie..."
-                    value={testStreamInputName}
-                    onChange={(e) => setTestStreamInputName(e.target.value)}
+                    defaultValue="hbo"
                     className="font-mono text-sm"
                   />
                 </div>
@@ -543,7 +541,7 @@ const Settings = () => {
                   <p className="text-xs text-muted-foreground mb-1">Generirani URL:</p>
                   <code className="text-sm text-primary break-all">
                     {settings.streamServerIp 
-                      ? `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}/proxy/${testStreamInputName || '[stream]'}/index.m3u8`
+                      ? `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/[stream]/index.m3u8`
                       : 'Unesi Server IP za generiranje URL-a'}
                   </code>
                 </div>
@@ -553,7 +551,8 @@ const Settings = () => {
                       variant="outline" 
                       size="sm"
                       onClick={() => {
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}/proxy/${testStreamInputName || 'test'}/index.m3u8`;
+                        const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/index.m3u8`;
                         navigator.clipboard.writeText(url);
                         toast({ title: "Kopirano", description: "Stream URL kopiran" });
                       }}
@@ -565,7 +564,8 @@ const Settings = () => {
                       variant="outline" 
                       size="sm"
                       onClick={() => {
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}/proxy/${testStreamInputName || 'test'}/index.m3u8`;
+                        const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/index.m3u8`;
                         window.open(url, '_blank');
                       }}
                     >
@@ -576,9 +576,10 @@ const Settings = () => {
                       variant="default" 
                       size="sm"
                       onClick={() => {
-                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}/proxy/${testStreamInputName || 'test'}/index.m3u8`;
+                        const streamName = (document.getElementById('testStreamName') as HTMLInputElement)?.value || 'test';
+                        const url = `${settings.streamUseSSL ? 'https' : 'http'}://${settings.streamServerIp}:${settings.streamHttpPort}${settings.streamHlsPath || '/live'}/${streamName}/index.m3u8`;
                         setTestStreamUrl(url);
-                        setTestStreamName(testStreamInputName || 'test');
+                        setTestStreamName(streamName);
                         setTestPlayerOpen(true);
                       }}
                     >

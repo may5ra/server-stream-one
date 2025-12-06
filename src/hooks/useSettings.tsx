@@ -60,13 +60,6 @@ export const useSettings = () => {
     const isLovablePreview = window.location.hostname.includes('lovable.app') || 
                               window.location.hostname.includes('lovableproject.com');
     
-    // Use configured domain or current host
-    const domain = settings.serverDomain || window.location.host;
-    
-    // Use current page protocol instead of SSL setting for test player
-    // This prevents mismatch when accessing via HTTP but SSL is enabled in settings
-    const protocol = window.location.protocol.replace(':', '');
-    
     // For HLS streams, use proxy to bypass CORS
     if (inputType === 'hls' && inputUrl) {
       // If running in Lovable preview, use Supabase edge function
@@ -78,10 +71,16 @@ export const useSettings = () => {
       }
       
       // For self-hosted Docker, use local proxy endpoint
+      // Use current host (which should be the Docker nginx on port 80)
+      const domain = settings.serverDomain || window.location.host;
+      const protocol = settings.enableSSL ? 'https' : (window.location.protocol === 'https:' ? 'https' : 'http');
       return `${protocol}://${domain}/proxy/${encodedName}/index.m3u8`;
     }
     
     // For RTMP/SRT/other streams, construct the output URL
+    const domain = settings.serverDomain || window.location.host;
+    const protocol = settings.enableSSL ? 'https' : (window.location.protocol === 'https:' ? 'https' : 'http');
+    
     return `${protocol}://${domain}/live/${streamName}/playlist.m3u8`;
   };
 

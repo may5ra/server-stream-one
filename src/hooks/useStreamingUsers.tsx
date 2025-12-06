@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useDockerSync } from "./useDockerSync";
 
 export interface StreamingUser {
   id: string;
@@ -19,7 +18,6 @@ export const useStreamingUsers = () => {
   const [users, setUsers] = useState<StreamingUser[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
-  const { syncToDocker } = useDockerSync();
 
   const fetchUsers = async () => {
     try {
@@ -70,9 +68,6 @@ export const useStreamingUsers = () => {
 
     if (error) throw error;
 
-    // Sync to Docker
-    await syncToDocker('streaming_users', 'insert', data);
-
     setUsers((prev) => [{ ...data, status: data.status as StreamingUser["status"] }, ...prev]);
     return data;
   };
@@ -84,12 +79,6 @@ export const useStreamingUsers = () => {
       .eq("id", id);
 
     if (error) throw error;
-
-    // Sync to Docker
-    const updatedUser = users.find(u => u.id === id);
-    if (updatedUser) {
-      await syncToDocker('streaming_users', 'update', { ...updatedUser, ...updates });
-    }
 
     setUsers((prev) =>
       prev.map((u) => (u.id === id ? { ...u, ...updates } : u))
@@ -103,9 +92,6 @@ export const useStreamingUsers = () => {
       .eq("id", id);
 
     if (error) throw error;
-
-    // Sync to Docker
-    await syncToDocker('streaming_users', 'delete', { id });
 
     setUsers((prev) => prev.filter((u) => u.id !== id));
   };
