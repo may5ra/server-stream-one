@@ -458,15 +458,24 @@ app.get('/get.php', async (req, res) => {
       const settings = {};
       settingsResult.rows.forEach(row => { settings[row.key] = row.value; });
       
-      // Use X-Forwarded headers first (from nginx), then env vars, then request host
-      const forwardedHost = req.headers['x-forwarded-host'];
+      // Priority: X-Forwarded-Host (from nginx with actual client IP) > settings > env > request host
+      // X-Forwarded-Host contains the actual host the client used (e.g., 38.180.100.86)
+      const forwardedHost = req.headers['x-forwarded-host']?.split(':')[0];
       const requestHost = req.headers.host?.split(':')[0] || req.hostname;
-      serverDomain = settings.server_domain || process.env.SERVER_DOMAIN || forwardedHost || requestHost;
+      
+      // IMPORTANT: Prefer X-Forwarded-Host over settings because it reflects the actual server IP
+      // Only use settings.server_domain if it's explicitly set and not empty/localhost
+      const settingsDomain = settings.server_domain && 
+                            settings.server_domain !== '' && 
+                            settings.server_domain !== 'localhost' ? settings.server_domain : null;
+      
+      serverDomain = forwardedHost || settingsDomain || process.env.SERVER_DOMAIN || requestHost;
       httpPort = settings.http_port || process.env.HTTP_PORT || '80';
       protocol = (settings.ssl_enabled === 'true' || req.headers['x-forwarded-proto'] === 'https') ? 'https' : 'http';
     } catch (e) {
       // Fallback if DB query fails
-      serverDomain = process.env.SERVER_DOMAIN || req.headers['x-forwarded-host'] || req.headers.host?.split(':')[0] || 'localhost';
+      const forwardedHost = req.headers['x-forwarded-host']?.split(':')[0];
+      serverDomain = forwardedHost || process.env.SERVER_DOMAIN || req.headers.host?.split(':')[0] || 'localhost';
       httpPort = process.env.HTTP_PORT || '80';
       protocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
     }
