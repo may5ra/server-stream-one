@@ -433,7 +433,7 @@ app.get('/player_api.php', async (req, res) => {
 
 app.get('/get.php', async (req, res) => {
   try {
-    const { username, password, type } = req.query;
+    const { username, password, type, output } = req.query;
     
     // Authenticate
     const userResult = await pool.query(
@@ -454,16 +454,32 @@ app.get('/get.php', async (req, res) => {
     const settings = {};
     settingsResult.rows.forEach(row => { settings[row.key] = row.value; });
     
-    const baseUrl = `http://${settings.server_domain || 'localhost'}:${settings.http_port || '80'}`;
+    // Get the actual server IP/domain from request host or settings
+    const requestHost = req.headers.host?.split(':')[0] || req.hostname || req.ip;
+    const serverDomain = settings.server_domain || requestHost || 'localhost';
+    const httpPort = settings.http_port || '80';
+    const protocol = settings.ssl_enabled === 'true' ? 'https' : 'http';
+    
+    // Build base URL - only include port if not default
+    let baseUrl;
+    if ((protocol === 'http' && httpPort === '80') || (protocol === 'https' && httpPort === '443')) {
+      baseUrl = `${protocol}://${serverDomain}`;
+    } else {
+      baseUrl = `${protocol}://${serverDomain}:${httpPort}`;
+    }
     
     let playlist = '#EXTM3U\n';
     
     // Live streams
     const streams = await pool.query('SELECT * FROM streams WHERE status != $1 ORDER BY channel_number', ['error']);
     
+    // Determine output format
+    const outputFormat = output === 'm3u8' ? 'index.m3u8' : 'index.m3u8';
+    
     for (const stream of streams.rows) {
       playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${stream.category || ''}",${stream.name}\n`;
-      playlist += `${baseUrl}/proxy/${stream.name}/index.m3u8\n`;
+      // Include username and password in the stream URL for authentication
+      playlist += `${baseUrl}/${username}/${password}/${encodeURIComponent(stream.name)}\n`;
     }
     
     res.setHeader('Content-Type', 'audio/x-mpegurl');
@@ -895,6 +911,108 @@ app.get('/api/connections/active', async (req, res) => {
     res.json({ connections, totalConnections: connections.reduce((sum, c) => sum + c.sessionCount, 0) });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== DIRECT STREAM ACCESS ====================
+// Format: /:username/:password/:streamName (for IPTV players)
+
+app.get('/:username/:password/:streamName', async (req, res) => {
+  try {
+    const { username, password, streamName } = req.params;
+    
+    console.log(`[Stream] Direct access: ${username}/${streamName}`);
+    
+    // Authenticate user
+    const userResult = await pool.query(
+      'SELECT * FROM streaming_users WHERE username = $1 AND password = $2',
+      [username, password]
+    );
+    
+    if (userResult.rows.length === 0) {
+      console.log(`[Stream] Invalid credentials for: ${username}`);
+      return res.status(401).send('Invalid credentials');
+    }
+    
+    const user = userResult.rows[0];
+    
+    // Check expiry
+    if (new Date(user.expiry_date) < new Date()) {
+      console.log(`[Stream] Account expired for: ${username}`);
+      return res.status(403).send('Account expired');
+    }
+    
+    // Connection limiting
+    const maxConnections = user.max_connections || 1;
+    const sessionId = getSessionId(req);
+    
+    if (!activeConnections.has(user.id)) {
+      activeConnections.set(user.id, new Map());
+    }
+    const userSessions = activeConnections.get(user.id);
+    
+    const isExistingSession = userSessions.has(sessionId);
+    
+    if (!isExistingSession && userSessions.size >= maxConnections) {
+      console.log(`[Stream] Connection limit reached for ${username}: ${userSessions.size}/${maxConnections}`);
+      return res.status(429).send('Connection limit reached');
+    }
+    
+    // Update session
+    userSessions.set(sessionId, {
+      streamName: decodeURIComponent(streamName),
+      lastSeen: Date.now()
+    });
+    
+    // Update database
+    await pool.query(
+      'UPDATE streaming_users SET connections = $1, last_active = NOW(), status = $2, updated_at = NOW() WHERE id = $3',
+      [userSessions.size, 'online', user.id]
+    );
+    
+    // Find stream
+    const streamResult = await pool.query(
+      'SELECT input_url, name FROM streams WHERE name = $1',
+      [decodeURIComponent(streamName)]
+    );
+    
+    if (streamResult.rows.length === 0) {
+      console.log(`[Stream] Stream not found: ${streamName}`);
+      return res.status(404).send('Stream not found');
+    }
+    
+    const stream = streamResult.rows[0];
+    if (!stream.input_url) {
+      return res.status(400).send('Stream has no source URL');
+    }
+    
+    // Redirect to actual stream
+    const targetUrl = stream.input_url.trim();
+    console.log(`[Stream] Redirecting to: ${targetUrl}`);
+    
+    // Proxy the stream content
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': req.headers['user-agent'] || 'StreamPanel/1.0'
+      }
+    });
+    
+    if (!response.ok) {
+      return res.status(response.status).send('Stream unavailable');
+    }
+    
+    // Set content type
+    const contentType = response.headers.get('content-type') || 'application/vnd.apple.mpegurl';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // Stream the content
+    const body = await response.arrayBuffer();
+    res.send(Buffer.from(body));
+    
+  } catch (error) {
+    console.error('[Stream] Error:', error);
+    res.status(500).send('Stream error');
   }
 });
 
