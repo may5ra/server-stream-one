@@ -114,21 +114,15 @@ const Users = () => {
     const serverUrl = getServerUrl();
     
     let playlist = `#EXTM3U\n`;
-    playlist += `#EXTINF:-1 tvg-id="" tvg-name="${settings.serverName}" tvg-logo="" group-title="Info",${settings.serverName} - ${user.username}\n`;
-    playlist += `#EXTVLCOPT:http-user-agent=${settings.serverName}/1.0\n`;
-    playlist += `${serverUrl}/info\n\n`;
     
     streams.forEach((stream) => {
-      playlist += `#EXTINF:-1 tvg-id="${stream.id}" tvg-name="${stream.name}" tvg-logo="" group-title="${stream.category || 'Live TV'}",${stream.name}\n`;
+      const streamIcon = stream.stream_icon || "";
+      const category = stream.category || "Live TV";
+      const epgId = stream.epg_channel_id || "";
+      const encodedName = encodeURIComponent(stream.name);
       
-      // For HLS streams, use proxy URL format with auth
-      if (stream.input_type === 'hls') {
-        const encodedName = encodeURIComponent(stream.name);
-        playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/index.m3u8\n`;
-      } else {
-        // For RTMP/other streams, use traditional format
-        playlist += `${serverUrl}/live/${user.username}/${user.password}/${stream.id}.m3u8\n`;
-      }
+      playlist += `#EXTINF:-1 tvg-id="${epgId}" tvg-name="${stream.name}" tvg-logo="${streamIcon}" group-title="${category}",${stream.name}\n`;
+      playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/index.m3u8\n`;
     });
 
     return playlist;
@@ -150,9 +144,9 @@ const Users = () => {
 
   const handleCopyPlaylistUrl = (user: StreamingUser) => {
     const serverUrl = getServerUrl();
-    const url = `${serverUrl}/get.php?username=${user.username}&password=${user.password}&type=m3u_plus&output=ts`;
+    const url = `${serverUrl}/get.php?username=${user.username}&password=${user.password}&type=m3u_plus&output=m3u8`;
     navigator.clipboard.writeText(url);
-    toast({ title: "Copied", description: "Playlist URL copied to clipboard" });
+    toast({ title: "Kopirano", description: "Playlist URL kopiran u clipboard" });
   };
 
   const formatDate = (dateStr: string) => {

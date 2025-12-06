@@ -58,25 +58,28 @@ export const useDashboardStats = () => {
   const [loading, setLoading] = useState(true);
   const { settings } = useSettings();
 
+  const getDockerUrl = () => {
+    const domain = settings?.serverDomain || "";
+    if (!domain) return null;
+    const protocol = settings?.enableSSL ? "https" : "http";
+    return `${protocol}://${domain}`;
+  };
+
   const fetchData = async () => {
     setLoading(true);
 
-    // Fetch from Supabase
-    const [streamsRes, serversRes, usersRes] = await Promise.all([
+    // Fetch from Supabase (basic data)
+    const [streamsRes, serversRes] = await Promise.all([
       supabase.from("streams").select("*").order("created_at", { ascending: false }).limit(10),
       supabase.from("servers").select("*").order("created_at", { ascending: false }),
-      supabase.from("streaming_users").select("*")
     ]);
 
     const streams = streamsRes.data || [];
     const serversList = serversRes.data || [];
-    const usersList = usersRes.data || [];
 
-    // Calculate stats from Supabase data
+    // Calculate stream stats
     const activeStreams = streams.filter((s) => s.status === "live").length;
     const onlineServers = serversList.filter((s) => s.status === "online").length;
-    const onlineUsers = usersList.filter((u) => u.status === "online").length;
-    const activeConnections = usersList.reduce((sum, u) => sum + (u.connections || 0), 0);
 
     // Calculate averages from online servers
     const onlineServersList = serversList.filter((s) => s.status === "online");
@@ -93,19 +96,58 @@ export const useDashboardStats = () => {
       ? Math.round(onlineServersList.reduce((sum, s) => sum + (s.network_usage || 0), 0) / onlineServersList.length)
       : 0;
 
+    // Fetch real-time stats from Docker backend (if available)
+    let dockerStats = {
+      totalUsers: 0,
+      onlineUsers: 0,
+      activeConnections: 0,
+    };
+
+    const dockerUrl = getDockerUrl();
+    if (dockerUrl) {
+      try {
+        const response = await fetch(`${dockerUrl}/api/stats`);
+        if (response.ok) {
+          const data = await response.json();
+          dockerStats = {
+            totalUsers: data.users?.total || 0,
+            onlineUsers: data.users?.online || 0,
+            activeConnections: data.users?.activeConnections || 0,
+          };
+        }
+      } catch (error) {
+        console.log("[Dashboard] Could not fetch Docker stats, using Supabase fallback");
+        // Fallback to Supabase data
+        const usersRes = await supabase.from("streaming_users").select("*");
+        const usersList = usersRes.data || [];
+        dockerStats = {
+          totalUsers: usersList.length,
+          onlineUsers: usersList.filter((u) => u.status === "online").length,
+          activeConnections: usersList.reduce((sum, u) => sum + (u.connections || 0), 0),
+        };
+      }
+    } else {
+      // No Docker URL, use Supabase
+      const usersRes = await supabase.from("streaming_users").select("*");
+      const usersList = usersRes.data || [];
+      dockerStats = {
+        totalUsers: usersList.length,
+        onlineUsers: usersList.filter((u) => u.status === "online").length,
+        activeConnections: usersList.reduce((sum, u) => sum + (u.connections || 0), 0),
+      };
+    }
+
     setStats({
       totalStreams: streams.length,
       activeStreams,
-      totalViewers: activeConnections, // Active connections = viewers
+      totalViewers: dockerStats.activeConnections,
       totalServers: serversList.length,
       onlineServers,
       avgCpu,
       avgMemory,
       avgDisk,
       avgNetwork,
-      totalUsers: usersList.length,
-      onlineUsers,
-      activeConnections,
+      ...dockerStats,
     });
 
     setRecentStreams(streams.slice(0, 5));
@@ -119,7 +161,7 @@ export const useDashboardStats = () => {
     // Refresh stats every 10 seconds
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [settings?.serverDomain]);
 
   return {
     stats,

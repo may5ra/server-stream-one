@@ -26,7 +26,8 @@ export const useStreamingUsers = () => {
   const getDockerUrl = () => {
     const domain = settings?.serverDomain || "";
     if (!domain) return null;
-    return `http://${domain}`;
+    const protocol = settings?.enableSSL ? "https" : "http";
+    return `${protocol}://${domain}`;
   };
 
   // Sync user to Docker server
