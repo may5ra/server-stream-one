@@ -121,10 +121,10 @@ const Users = () => {
     streams.forEach((stream) => {
       playlist += `#EXTINF:-1 tvg-id="${stream.id}" tvg-name="${stream.name}" tvg-logo="" group-title="${stream.category || 'Live TV'}",${stream.name}\n`;
       
-      // For HLS streams, use proxy URL format
+      // For HLS streams, use proxy URL format with auth
       if (stream.input_type === 'hls') {
         const encodedName = encodeURIComponent(stream.name);
-        playlist += `${serverUrl}/proxy/${encodedName}/index.m3u8\n`;
+        playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/index.m3u8\n`;
       } else {
         // For RTMP/other streams, use traditional format
         playlist += `${serverUrl}/live/${user.username}/${user.password}/${stream.id}.m3u8\n`;
