@@ -612,6 +612,42 @@ app.put('/api/settings', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== CONNECTION TRACKING ====================
+// Track active connections per user with session IDs
+const activeConnections = new Map(); // userId -> Map<sessionId, { streamName, lastSeen }>
+
+// Cleanup old sessions every 30 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, sessions] of activeConnections.entries()) {
+    for (const [sessionId, data] of sessions.entries()) {
+      // Remove sessions inactive for more than 30 seconds
+      if (now - data.lastSeen > 30000) {
+        sessions.delete(sessionId);
+        console.log(`[Connections] Removed stale session ${sessionId} for user ${userId}`);
+      }
+    }
+    // Update database with current connection count
+    if (sessions.size >= 0) {
+      pool.query(
+        'UPDATE streaming_users SET connections = $1, status = $2, updated_at = NOW() WHERE id = $3',
+        [sessions.size, sessions.size > 0 ? 'online' : 'offline', userId]
+      ).catch(err => console.error('[Connections] DB update error:', err));
+    }
+    if (sessions.size === 0) {
+      activeConnections.delete(userId);
+    }
+  }
+}, 30000);
+
+// Get or create session ID from request
+function getSessionId(req) {
+  // Use IP + User-Agent as session identifier
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const ua = req.headers['user-agent'] || 'unknown';
+  return `${ip}_${ua.substring(0, 50)}`.replace(/[^a-zA-Z0-9_]/g, '');
+}
+
 // ==================== UNIFIED STREAM PROXY ====================
 // Handles both authenticated (/proxy/user/pass/stream/file) and legacy (/proxy/stream/file)
 
@@ -656,7 +692,7 @@ app.get('/proxy/*', async (req, res) => {
     
     console.log(`[Proxy] ${isAuthenticated ? 'Auth' : 'Legacy'}: stream=${streamName}, file=${filePath}`);
     
-    // Handle authenticated requests
+    // Handle authenticated requests with connection limiting
     if (isAuthenticated) {
       const userResult = await pool.query(
         'SELECT * FROM streaming_users WHERE username = $1 AND password = $2',
@@ -672,16 +708,47 @@ app.get('/proxy/*', async (req, res) => {
       
       // Check expiry
       if (new Date(user.expiry_date) < new Date()) {
+        console.log(`[Proxy] Account expired for: ${username}`);
         return res.status(403).json({ error: 'Account expired' });
       }
       
-      // Update last active (only for main playlist)
-      if (filePath === 'index.m3u8') {
-        await pool.query(
-          'UPDATE streaming_users SET last_active = NOW(), status = $1 WHERE id = $2',
-          ['online', user.id]
-        );
+      const maxConnections = user.max_connections || 1;
+      const sessionId = getSessionId(req);
+      
+      // Get or create user's connection map
+      if (!activeConnections.has(user.id)) {
+        activeConnections.set(user.id, new Map());
       }
+      const userSessions = activeConnections.get(user.id);
+      
+      // Check if this is an existing session or new one
+      const isExistingSession = userSessions.has(sessionId);
+      
+      // Only check connection limit for main playlist requests and new sessions
+      if (filePath === 'index.m3u8' && !isExistingSession) {
+        if (userSessions.size >= maxConnections) {
+          console.log(`[Proxy] Connection limit reached for ${username}: ${userSessions.size}/${maxConnections}`);
+          return res.status(429).json({ 
+            error: 'Connection limit reached', 
+            current: userSessions.size, 
+            max: maxConnections 
+          });
+        }
+      }
+      
+      // Update session tracking
+      userSessions.set(sessionId, {
+        streamName,
+        lastSeen: Date.now()
+      });
+      
+      // Update database
+      await pool.query(
+        'UPDATE streaming_users SET connections = $1, last_active = NOW(), status = $2, updated_at = NOW() WHERE id = $3',
+        [userSessions.size, 'online', user.id]
+      );
+      
+      console.log(`[Proxy] User ${username}: ${userSessions.size}/${maxConnections} connections`);
     }
     
     // Look up stream
@@ -740,6 +807,35 @@ app.get('/proxy/*', async (req, res) => {
     
   } catch (error) {
     console.error('[Proxy] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== STATS API ====================
+app.get('/api/stats', async (req, res) => {
+  try {
+    const [usersResult, streamsResult, serversResult] = await Promise.all([
+      pool.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as online, SUM(connections) as active_connections FROM streaming_users', ['online']),
+      pool.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as active FROM streams', ['live']),
+      pool.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as online FROM servers', ['online'])
+    ]);
+    
+    res.json({
+      users: {
+        total: parseInt(usersResult.rows[0].total) || 0,
+        online: parseInt(usersResult.rows[0].online) || 0,
+        activeConnections: parseInt(usersResult.rows[0].active_connections) || 0
+      },
+      streams: {
+        total: parseInt(streamsResult.rows[0].total) || 0,
+        active: parseInt(streamsResult.rows[0].active) || 0
+      },
+      servers: {
+        total: parseInt(serversResult.rows[0].total) || 0,
+        online: parseInt(serversResult.rows[0].online) || 0
+      }
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
