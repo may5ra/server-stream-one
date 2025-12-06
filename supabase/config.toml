@@ -8,3 +8,12 @@ verify_jwt = false
 
 [functions.deploy-proxy-config]
 verify_jwt = false
+
+[functions.xtream-api]
+verify_jwt = false
+
+[functions.m3u-playlist]
+verify_jwt = false
+
+[functions.epg-import]
+verify_jwt = false

@@ -41,6 +41,127 @@ export type Database = {
         }
         Relationships: []
       }
+      epg_channels: {
+        Row: {
+          created_at: string
+          epg_channel_id: string
+          icon_url: string | null
+          id: string
+          name: string
+          stream_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          epg_channel_id: string
+          icon_url?: string | null
+          id?: string
+          name: string
+          stream_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          epg_channel_id?: string
+          icon_url?: string | null
+          id?: string
+          name?: string
+          stream_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "epg_channels_stream_id_fkey"
+            columns: ["stream_id"]
+            isOneToOne: false
+            referencedRelation: "streams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      epg_programs: {
+        Row: {
+          channel_id: string
+          created_at: string
+          description: string | null
+          end_time: string
+          id: string
+          start_time: string
+          title: string
+        }
+        Insert: {
+          channel_id: string
+          created_at?: string
+          description?: string | null
+          end_time: string
+          id?: string
+          start_time: string
+          title: string
+        }
+        Update: {
+          channel_id?: string
+          created_at?: string
+          description?: string | null
+          end_time?: string
+          id?: string
+          start_time?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "epg_programs_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "epg_channels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      epg_sources: {
+        Row: {
+          created_at: string
+          id: string
+          last_import: string | null
+          name: string
+          status: string | null
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_import?: string | null
+          name: string
+          status?: string | null
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_import?: string | null
+          name?: string
+          status?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
+      live_categories: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number | null
+        }
+        Relationships: []
+      }
       panel_settings: {
         Row: {
           created_at: string
@@ -64,6 +185,204 @@ export type Database = {
           value?: string | null
         }
         Relationships: []
+      }
+      reseller_credits: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          notes: string | null
+          reseller_id: string
+          type: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          reseller_id: string
+          type: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          reseller_id?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reseller_credits_reseller_id_fkey"
+            columns: ["reseller_id"]
+            isOneToOne: false
+            referencedRelation: "resellers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      resellers: {
+        Row: {
+          created_at: string
+          credits: number | null
+          id: string
+          max_connections: number | null
+          notes: string | null
+          password: string
+          status: string | null
+          user_id: string
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          credits?: number | null
+          id?: string
+          max_connections?: number | null
+          notes?: string | null
+          password: string
+          status?: string | null
+          user_id: string
+          username: string
+        }
+        Update: {
+          created_at?: string
+          credits?: number | null
+          id?: string
+          max_connections?: number | null
+          notes?: string | null
+          password?: string
+          status?: string | null
+          user_id?: string
+          username?: string
+        }
+        Relationships: []
+      }
+      series: {
+        Row: {
+          cast_names: string | null
+          category_id: string | null
+          cover_url: string | null
+          created_at: string
+          director: string | null
+          genre: string | null
+          id: string
+          name: string
+          plot: string | null
+          rating: number | null
+          release_date: string | null
+          status: string | null
+          tmdb_id: number | null
+        }
+        Insert: {
+          cast_names?: string | null
+          category_id?: string | null
+          cover_url?: string | null
+          created_at?: string
+          director?: string | null
+          genre?: string | null
+          id?: string
+          name: string
+          plot?: string | null
+          rating?: number | null
+          release_date?: string | null
+          status?: string | null
+          tmdb_id?: number | null
+        }
+        Update: {
+          cast_names?: string | null
+          category_id?: string | null
+          cover_url?: string | null
+          created_at?: string
+          director?: string | null
+          genre?: string | null
+          id?: string
+          name?: string
+          plot?: string | null
+          rating?: number | null
+          release_date?: string | null
+          status?: string | null
+          tmdb_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "series_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      series_categories: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number | null
+        }
+        Relationships: []
+      }
+      series_episodes: {
+        Row: {
+          container_extension: string | null
+          cover_url: string | null
+          created_at: string
+          duration: number | null
+          episode_number: number
+          id: string
+          plot: string | null
+          season_number: number
+          series_id: string
+          stream_url: string
+          title: string | null
+        }
+        Insert: {
+          container_extension?: string | null
+          cover_url?: string | null
+          created_at?: string
+          duration?: number | null
+          episode_number: number
+          id?: string
+          plot?: string | null
+          season_number?: number
+          series_id: string
+          stream_url: string
+          title?: string | null
+        }
+        Update: {
+          container_extension?: string | null
+          cover_url?: string | null
+          created_at?: string
+          duration?: number | null
+          episode_number?: number
+          id?: string
+          plot?: string | null
+          season_number?: number
+          series_id?: string
+          stream_url?: string
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_episodes_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "series"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       servers: {
         Row: {
@@ -122,6 +441,7 @@ export type Database = {
           last_active: string | null
           max_connections: number | null
           password: string
+          reseller_id: string | null
           status: string
           updated_at: string
           username: string
@@ -134,6 +454,7 @@ export type Database = {
           last_active?: string | null
           max_connections?: number | null
           password: string
+          reseller_id?: string | null
           status?: string
           updated_at?: string
           username: string
@@ -146,11 +467,20 @@ export type Database = {
           last_active?: string | null
           max_connections?: number | null
           password?: string
+          reseller_id?: string | null
           status?: string
           updated_at?: string
           username?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "streaming_users_reseller_id_fkey"
+            columns: ["reseller_id"]
+            isOneToOne: false
+            referencedRelation: "resellers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       streams: {
         Row: {
@@ -162,6 +492,7 @@ export type Database = {
           created_at: string
           dvr_duration: number | null
           dvr_enabled: boolean | null
+          epg_channel_id: string | null
           id: string
           input_type: string
           input_url: string
@@ -169,6 +500,7 @@ export type Database = {
           output_formats: string[] | null
           resolution: string | null
           status: string
+          stream_icon: string | null
           updated_at: string
           viewers: number | null
           webvtt_enabled: boolean | null
@@ -185,6 +517,7 @@ export type Database = {
           created_at?: string
           dvr_duration?: number | null
           dvr_enabled?: boolean | null
+          epg_channel_id?: string | null
           id?: string
           input_type?: string
           input_url: string
@@ -192,6 +525,7 @@ export type Database = {
           output_formats?: string[] | null
           resolution?: string | null
           status?: string
+          stream_icon?: string | null
           updated_at?: string
           viewers?: number | null
           webvtt_enabled?: boolean | null
@@ -208,6 +542,7 @@ export type Database = {
           created_at?: string
           dvr_duration?: number | null
           dvr_enabled?: boolean | null
+          epg_channel_id?: string | null
           id?: string
           input_type?: string
           input_url?: string
@@ -215,6 +550,7 @@ export type Database = {
           output_formats?: string[] | null
           resolution?: string | null
           status?: string
+          stream_icon?: string | null
           updated_at?: string
           viewers?: number | null
           webvtt_enabled?: boolean | null
@@ -244,6 +580,95 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      vod_categories: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number | null
+        }
+        Relationships: []
+      }
+      vod_content: {
+        Row: {
+          added: string | null
+          cast_names: string | null
+          category_id: string | null
+          container_extension: string | null
+          cover_url: string | null
+          created_at: string
+          director: string | null
+          duration: number | null
+          genre: string | null
+          id: string
+          name: string
+          plot: string | null
+          rating: number | null
+          release_date: string | null
+          status: string | null
+          stream_url: string
+          tmdb_id: number | null
+        }
+        Insert: {
+          added?: string | null
+          cast_names?: string | null
+          category_id?: string | null
+          container_extension?: string | null
+          cover_url?: string | null
+          created_at?: string
+          director?: string | null
+          duration?: number | null
+          genre?: string | null
+          id?: string
+          name: string
+          plot?: string | null
+          rating?: number | null
+          release_date?: string | null
+          status?: string | null
+          stream_url: string
+          tmdb_id?: number | null
+        }
+        Update: {
+          added?: string | null
+          cast_names?: string | null
+          category_id?: string | null
+          container_extension?: string | null
+          cover_url?: string | null
+          created_at?: string
+          director?: string | null
+          duration?: number | null
+          genre?: string | null
+          id?: string
+          name?: string
+          plot?: string | null
+          rating?: number | null
+          release_date?: string | null
+          status?: string | null
+          stream_url?: string
+          tmdb_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vod_content_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "vod_categories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
