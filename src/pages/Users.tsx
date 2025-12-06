@@ -40,9 +40,14 @@ const Users = () => {
   );
 
   const getServerUrl = () => {
-    const domain = settings.serverDomain || "your-server.com";
-    const protocol = settings.enableSSL ? "https" : "http";
-    return `${protocol}://${domain}`;
+    // For Docker deployment, use current origin (e.g., http://38.180.100.86)
+    // Only use settings if explicitly configured
+    if (settings.serverDomain && settings.serverDomain !== "") {
+      const protocol = settings.enableSSL ? "https" : "http";
+      return `${protocol}://${settings.serverDomain}`;
+    }
+    // Fallback to current browser URL origin
+    return window.location.origin;
   };
 
   const handleAddUser = async () => {
