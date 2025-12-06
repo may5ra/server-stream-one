@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: streampanel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-streampanel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-streampanel123}
+      POSTGRES_DB: ${DB_NAME:-streampanel}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-streampanel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: streampanel-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${DB_USER:-streampanel}:${DB_PASSWORD:-streampanel123}@db:5432/${DB_NAME:-streampanel}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Frontend
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        VITE_API_URL: http://localhost:3001
+    container_name: streampanel-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  # Nginx RTMP for streaming (optional)
+  rtmp:
+    image: tiangolo/nginx-rtmp
+    container_name: streampanel-rtmp
+    restart: unless-stopped
+    ports:
+      - "1935:1935"
+      - "8080:8080"
+    volumes:
+      - ./nginx-rtmp.conf:/etc/nginx/nginx.conf:ro
+      - hls_data:/tmp/hls
+    profiles:
+      - streaming
+
+volumes:
+  postgres_data:
+  hls_data:

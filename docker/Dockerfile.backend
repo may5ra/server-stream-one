@@ -1,0 +1,14 @@
+# Backend API - Node.js/Express
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY docker/backend/package*.json ./
+RUN npm ci --only=production
+
+# Copy backend code
+COPY docker/backend/ ./
+
+EXPOSE 3001
+CMD ["node", "server.js"]
