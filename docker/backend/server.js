@@ -372,10 +372,10 @@ app.get('/get.php', async (req, res) => {
     for (const stream of streams.rows) {
       playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${stream.category || ''}",${stream.name}\n`;
       
-      // For HLS streams, use proxy URL format
+      // For HLS streams, use proxy URL format with auth
       if (stream.input_type === 'hls') {
         const encodedName = encodeURIComponent(stream.name);
-        playlist += `${baseUrl}/proxy/${encodedName}/index.m3u8\n`;
+        playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
       } else {
         // For RTMP/other streams, use traditional format
         playlist += `${baseUrl}/live/${username}/${password}/${stream.id}.m3u8\n`;
@@ -528,15 +528,203 @@ app.put('/api/settings', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== ACTIVE CONNECTIONS TRACKING ====================
+
+// Store active connections in memory (for real-time tracking)
+const activeConnections = new Map(); // userId -> Set of connectionIds
+
+// Clean up stale connections periodically (every 30 seconds)
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, connections] of activeConnections.entries()) {
+    for (const [connId, connData] of connections.entries()) {
+      // Remove connections older than 60 seconds without activity
+      if (now - connData.lastActivity > 60000) {
+        connections.delete(connId);
+        console.log(`[Connections] Removed stale connection ${connId} for user ${userId}`);
+      }
+    }
+    // Update database with current connection count
+    if (connections.size >= 0) {
+      pool.query('UPDATE streaming_users SET connections = $1 WHERE id = $2', [connections.size, userId])
+        .catch(err => console.error('Failed to update connections:', err));
+    }
+  }
+}, 30000);
+
+// API endpoint to get active connections for a user
+app.get('/api/connections/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const connections = activeConnections.get(userId);
+    const count = connections ? connections.size : 0;
+    
+    const result = await pool.query('SELECT connections, max_connections FROM streaming_users WHERE id = $1', [userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({
+      active: count,
+      max: result.rows[0].max_connections,
+      connections: connections ? Array.from(connections.values()) : []
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== STREAM PROXY ====================
 
-// Proxy endpoint for HLS streams (bypass CORS)
+// Proxy endpoint for HLS streams with auth (bypass CORS)
+// URL format: /proxy/:username/:password/:streamName/*
+app.get('/proxy/:username/:password/:streamName/*', async (req, res) => {
+  try {
+    const { username, password, streamName } = req.params;
+    const filePath = req.params[0] || 'index.m3u8';
+    const clientIp = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const connectionId = `${clientIp}-${streamName}-${Date.now()}`;
+    
+    console.log(`[Proxy] Request: ${username}/${streamName}/${filePath} from ${clientIp}`);
+    
+    // Authenticate streaming user
+    const userResult = await pool.query(
+      'SELECT id, username, max_connections, expiry_date, status FROM streaming_users WHERE username = $1 AND password = $2',
+      [username, password]
+    );
+    
+    if (userResult.rows.length === 0) {
+      console.log(`[Proxy] Auth failed for ${username}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const user = userResult.rows[0];
+    
+    // Check expiry
+    if (new Date(user.expiry_date) < new Date()) {
+      console.log(`[Proxy] Account expired for ${username}`);
+      return res.status(403).json({ error: 'Account expired' });
+    }
+    
+    // Check connection limit
+    if (!activeConnections.has(user.id)) {
+      activeConnections.set(user.id, new Map());
+    }
+    
+    const userConnections = activeConnections.get(user.id);
+    
+    // Find existing connection for this IP+stream or create new
+    let existingConnId = null;
+    for (const [connId, connData] of userConnections.entries()) {
+      if (connData.ip === clientIp && connData.stream === streamName) {
+        existingConnId = connId;
+        break;
+      }
+    }
+    
+    if (existingConnId) {
+      // Update existing connection activity
+      userConnections.get(existingConnId).lastActivity = Date.now();
+    } else {
+      // Check if we can add new connection
+      if (userConnections.size >= (user.max_connections || 1)) {
+        console.log(`[Proxy] Connection limit reached for ${username}: ${userConnections.size}/${user.max_connections}`);
+        return res.status(429).json({ 
+          error: 'Connection limit reached', 
+          active: userConnections.size, 
+          max: user.max_connections 
+        });
+      }
+      
+      // Add new connection
+      userConnections.set(connectionId, {
+        ip: clientIp,
+        stream: streamName,
+        startTime: Date.now(),
+        lastActivity: Date.now()
+      });
+      
+      console.log(`[Proxy] New connection for ${username}: ${userConnections.size}/${user.max_connections}`);
+      
+      // Update database
+      await pool.query(
+        'UPDATE streaming_users SET connections = $1, last_active = NOW() WHERE id = $2',
+        [userConnections.size, user.id]
+      );
+    }
+    
+    // Look up stream from database
+    const streamResult = await pool.query(
+      'SELECT input_url, name, status FROM streams WHERE name = $1',
+      [decodeURIComponent(streamName)]
+    );
+    
+    if (streamResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Stream not found' });
+    }
+    
+    const stream = streamResult.rows[0];
+    if (!stream.input_url) {
+      return res.status(400).json({ error: 'Stream has no source URL' });
+    }
+    
+    // Construct target URL
+    let targetUrl;
+    const inputUrl = stream.input_url.trim();
+    
+    if (inputUrl.endsWith('/')) {
+      targetUrl = `${inputUrl}${filePath}`;
+    } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
+      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+      targetUrl = `${baseUrl}${filePath}`;
+    } else {
+      targetUrl = `${inputUrl}/${filePath}`;
+    }
+    
+    console.log(`[Proxy] Fetching: ${targetUrl}`);
+    
+    // Fetch from original source
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`[Proxy] Upstream error: ${response.status}`);
+      return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+    }
+    
+    // Set content type
+    let contentType = response.headers.get('content-type') || 'application/octet-stream';
+    if (filePath.endsWith('.m3u8')) {
+      contentType = 'application/vnd.apple.mpegurl';
+    } else if (filePath.endsWith('.ts')) {
+      contentType = 'video/mp2t';
+    }
+    
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+    
+    const body = await response.arrayBuffer();
+    res.send(Buffer.from(body));
+    
+  } catch (error) {
+    console.error('[Proxy] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Legacy proxy without auth (for backwards compatibility - will be deprecated)
 app.get('/proxy/:streamName/*', async (req, res) => {
   try {
     const { streamName } = req.params;
     const filePath = req.params[0] || 'index.m3u8';
     
-    console.log(`Stream proxy request: ${streamName}/${filePath}`);
+    console.log(`[Legacy Proxy] Request: ${streamName}/${filePath} - Consider using authenticated endpoint`);
     
     // Look up stream from database
     const result = await pool.query(
@@ -566,9 +754,6 @@ app.get('/proxy/:streamName/*', async (req, res) => {
       targetUrl = `${inputUrl}/${filePath}`;
     }
     
-    console.log(`Proxying to: ${targetUrl}`);
-    
-    // Fetch from original source
     const response = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -577,20 +762,14 @@ app.get('/proxy/:streamName/*', async (req, res) => {
     });
     
     if (!response.ok) {
-      console.error(`Upstream error: ${response.status}`);
       return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
     }
     
-    // Set content type
     let contentType = response.headers.get('content-type') || 'application/octet-stream';
-    if (filePath.endsWith('.m3u8')) {
-      contentType = 'application/vnd.apple.mpegurl';
-    } else if (filePath.endsWith('.ts')) {
-      contentType = 'video/mp2t';
-    }
+    if (filePath.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+    else if (filePath.endsWith('.ts')) contentType = 'video/mp2t';
     
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
     
@@ -598,7 +777,7 @@ app.get('/proxy/:streamName/*', async (req, res) => {
     res.send(Buffer.from(body));
     
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('[Legacy Proxy] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
