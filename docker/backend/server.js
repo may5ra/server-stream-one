@@ -840,6 +840,64 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+// ==================== CONNECTION MANAGEMENT API ====================
+
+// Force disconnect a user
+app.post('/api/connections/disconnect', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
+    }
+    
+    // Remove from in-memory tracking
+    if (activeConnections.has(userId)) {
+      activeConnections.delete(userId);
+      console.log(`[Disconnect] Removed all sessions for user ${userId}`);
+    }
+    
+    // Update database
+    await pool.query(
+      'UPDATE streaming_users SET connections = 0, status = $1, updated_at = NOW() WHERE id = $2',
+      ['offline', userId]
+    );
+    
+    res.json({ success: true, message: 'User disconnected' });
+  } catch (error) {
+    console.error('[Disconnect] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get active connections
+app.get('/api/connections/active', async (req, res) => {
+  try {
+    const connections = [];
+    
+    for (const [userId, sessions] of activeConnections.entries()) {
+      const sessionsArray = [];
+      for (const [sessionId, data] of sessions.entries()) {
+        sessionsArray.push({
+          sessionId,
+          streamName: data.streamName,
+          lastSeen: new Date(data.lastSeen).toISOString()
+        });
+      }
+      
+      connections.push({
+        userId,
+        sessionCount: sessions.size,
+        sessions: sessionsArray
+      });
+    }
+    
+    res.json({ connections, totalConnections: connections.reduce((sum, c) => sum + c.sessionCount, 0) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
