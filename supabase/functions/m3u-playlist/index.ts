@@ -106,10 +106,10 @@ Deno.serve(async (req) => {
         m3u += `#EXTINF:-1,${stream.name}\n`;
       }
       
-      // For HLS streams, use proxy URL format
+      // For HLS streams, use proxy URL format with auth
       if (stream.input_type === "hls") {
         const encodedName = encodeURIComponent(stream.name);
-        m3u += `http://${serverUrl}:${httpPort}/proxy/${encodedName}/index.m3u8\n`;
+        m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
       } else {
         // For RTMP/other streams, use traditional format
         const ext = output === "ts" ? ".ts" : ".m3u8";
