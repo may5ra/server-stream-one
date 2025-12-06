@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye } from "lucide-react";
+import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { useStreams, Stream } from "@/hooks/useStreams";
 import { useSettings } from "@/hooks/useSettings";
 import { StreamTestPlayer } from "@/components/StreamTestPlayer";
+import { M3UImportDialog } from "@/components/M3UImportDialog";
 
 const statusConfig = {
   live: { color: "text-success", bg: "bg-success/20", label: "Live" },
@@ -30,7 +31,7 @@ const inputTypeLabels: Record<string, string> = {
 };
 
 const Streams = () => {
-  const { streams, loading, addStream, updateStream, deleteStream, toggleStream } = useStreams();
+  const { streams, loading, addStream, updateStream, deleteStream, toggleStream, refetch } = useStreams();
   const { settings, getStreamUrl } = useSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -158,13 +159,16 @@ const Streams = () => {
               )}
             </div>
             
-            <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-              <DialogTrigger asChild>
-                <Button variant="glow">
-                  <Plus className="h-4 w-4" />
-                  Dodaj Stream
-                </Button>
-              </DialogTrigger>
+            <div className="flex gap-2">
+              <M3UImportDialog onImportComplete={refetch} />
+              
+              <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="glow">
+                    <Plus className="h-4 w-4" />
+                    Dodaj Stream
+                  </Button>
+                </DialogTrigger>
               <DialogContent className="glass max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Dodaj novi stream</DialogTitle>
@@ -402,7 +406,8 @@ const Streams = () => {
                   Dodaj Stream
                 </Button>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </div>
           </div>
 
           {/* Stats */}
