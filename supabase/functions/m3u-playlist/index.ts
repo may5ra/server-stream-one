@@ -97,7 +97,6 @@ Deno.serve(async (req) => {
   
   Object.entries(groupedStreams).forEach(([group, groupStreams]) => {
     groupStreams.forEach(stream => {
-      const ext = output === "ts" ? ".ts" : ".m3u8";
       const tvgId = stream.epg_channel_id || stream.name.toLowerCase().replace(/\s+/g, "");
       const icon = stream.stream_icon || "";
       
@@ -107,8 +106,15 @@ Deno.serve(async (req) => {
         m3u += `#EXTINF:-1,${stream.name}\n`;
       }
       
-      // Use proxy URL format
-      m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
+      // For HLS streams, use proxy URL format
+      if (stream.input_type === "hls") {
+        const encodedName = encodeURIComponent(stream.name);
+        m3u += `http://${serverUrl}:${httpPort}/proxy/${encodedName}/index.m3u8\n`;
+      } else {
+        // For RTMP/other streams, use traditional format
+        const ext = output === "ts" ? ".ts" : ".m3u8";
+        m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
+      }
     });
   });
   
