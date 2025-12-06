@@ -118,9 +118,17 @@ const Users = () => {
     playlist += `#EXTVLCOPT:http-user-agent=${settings.serverName}/1.0\n`;
     playlist += `${serverUrl}/info\n\n`;
     
-    streams.forEach((stream, index) => {
+    streams.forEach((stream) => {
       playlist += `#EXTINF:-1 tvg-id="${stream.id}" tvg-name="${stream.name}" tvg-logo="" group-title="${stream.category || 'Live TV'}",${stream.name}\n`;
-      playlist += `${serverUrl}/live/${user.username}/${user.password}/${index + 1}.m3u8\n`;
+      
+      // For HLS streams, use proxy URL format
+      if (stream.input_type === 'hls') {
+        const encodedName = encodeURIComponent(stream.name);
+        playlist += `${serverUrl}/proxy/${encodedName}/index.m3u8\n`;
+      } else {
+        // For RTMP/other streams, use traditional format
+        playlist += `${serverUrl}/live/${user.username}/${user.password}/${stream.id}.m3u8\n`;
+      }
     });
 
     return playlist;
