@@ -66,9 +66,31 @@ apt-get install -y -qq \
 # Install Docker
 echo -e "${BLUE}Step 3/5: Installing Docker...${NC}"
 if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sh get-docker.sh
-    rm get-docker.sh
+    # Manual Docker installation for better compatibility
+    apt-get install -y -qq \
+        ca-certificates \
+        curl \
+        gnupg \
+        lsb-release
+    
+    # Add Docker's official GPG key
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    
+    # Add Docker repository
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    apt-get update -qq
+    
+    # Install Docker packages (without docker-model-plugin for older Ubuntu)
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
+        echo -e "${YELLOW}Some Docker packages unavailable, trying minimal install...${NC}"
+        apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    }
     
     # Add current user to docker group
     usermod -aG docker $SUDO_USER 2>/dev/null || true
@@ -80,13 +102,13 @@ else
     echo -e "${GREEN}Docker already installed${NC}"
 fi
 
-# Install Docker Compose
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo "Installing Docker Compose..."
+# Ensure Docker Compose is available
+if ! docker compose version &> /dev/null; then
+    echo "Installing Docker Compose standalone..."
     curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     chmod +x /usr/local/bin/docker-compose
 else
-    echo -e "${GREEN}Docker Compose already installed${NC}"
+    echo -e "${GREEN}Docker Compose already available${NC}"
 fi
 
 echo -e "${BLUE}Step 4/5: Setting up StreamPanel...${NC}"
