@@ -520,6 +520,111 @@ app.put('/api/settings', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== STREAM PROXY (AUTHENTICATED) ====================
+
+app.get('/proxy/:username/:password/:streamName/:file(*)', async (req, res) => {
+  try {
+    const { username, password, streamName, file } = req.params;
+    const filePath = file || 'index.m3u8';
+    
+    console.log(`[Proxy Auth] User: ${username}, Stream: ${streamName}, File: ${filePath}`);
+    
+    // Authenticate streaming user
+    const userResult = await pool.query(
+      'SELECT * FROM streaming_users WHERE username = $1 AND password = $2',
+      [username, password]
+    );
+    
+    if (userResult.rows.length === 0) {
+      console.log(`[Proxy Auth] Invalid credentials for: ${username}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const user = userResult.rows[0];
+    
+    // Check expiry
+    if (new Date(user.expiry_date) < new Date()) {
+      console.log(`[Proxy Auth] Account expired for: ${username}`);
+      return res.status(403).json({ error: 'Account expired' });
+    }
+    
+    // Check connection limit (only for main playlist file)
+    if (filePath === 'index.m3u8' || filePath.endsWith('.m3u8')) {
+      const currentConnections = user.connections || 0;
+      const maxConnections = user.max_connections || 1;
+      
+      if (currentConnections >= maxConnections) {
+        console.log(`[Proxy Auth] Connection limit reached for: ${username} (${currentConnections}/${maxConnections})`);
+        return res.status(429).json({ error: 'Connection limit reached' });
+      }
+      
+      // Update connection count and last active
+      await pool.query(
+        'UPDATE streaming_users SET connections = connections + 1, last_active = NOW(), status = $1 WHERE id = $2',
+        ['online', user.id]
+      );
+    }
+    
+    // Look up stream
+    const streamResult = await pool.query(
+      'SELECT input_url, name FROM streams WHERE name = $1',
+      [decodeURIComponent(streamName)]
+    );
+    
+    if (streamResult.rows.length === 0) {
+      console.log(`[Proxy Auth] Stream not found: ${streamName}`);
+      return res.status(404).json({ error: 'Stream not found' });
+    }
+    
+    const stream = streamResult.rows[0];
+    if (!stream.input_url) {
+      return res.status(400).json({ error: 'Stream has no source URL' });
+    }
+    
+    // Construct target URL
+    let targetUrl;
+    const inputUrl = stream.input_url.trim();
+    
+    if (inputUrl.endsWith('/')) {
+      targetUrl = `${inputUrl}${filePath}`;
+    } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
+      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+      targetUrl = `${baseUrl}${filePath}`;
+    } else {
+      targetUrl = `${inputUrl}/${filePath}`;
+    }
+    
+    console.log(`[Proxy Auth] Fetching: ${targetUrl}`);
+    
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`[Proxy Auth] Upstream error: ${response.status}`);
+      return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+    }
+    
+    let contentType = response.headers.get('content-type') || 'application/octet-stream';
+    if (filePath.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+    else if (filePath.endsWith('.ts')) contentType = 'video/mp2t';
+    
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+    
+    const body = await response.arrayBuffer();
+    res.send(Buffer.from(body));
+    
+  } catch (error) {
+    console.error('[Proxy Auth] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== STREAM PROXY (LEGACY - no auth) ====================
 
 app.get('/proxy/:streamName/:file(*)', async (req, res) => {
