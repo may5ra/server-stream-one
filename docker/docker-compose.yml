@@ -20,6 +20,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - streampanel
 
   # Backend API
   backend:
@@ -38,6 +40,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - streampanel
 
   # Frontend
   frontend:
@@ -52,6 +56,8 @@ services:
       - "80:80"
     depends_on:
       - backend
+    networks:
+      - streampanel
 
   # Nginx RTMP for streaming (optional)
   rtmp:
@@ -66,6 +72,12 @@ services:
       - hls_data:/tmp/hls
     profiles:
       - streaming
+    networks:
+      - streampanel
+
+networks:
+  streampanel:
+    driver: bridge
 
 volumes:
   postgres_data:
