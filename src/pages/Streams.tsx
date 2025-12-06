@@ -703,7 +703,7 @@ const Streams = () => {
           <StreamTestPlayer 
             open={!!testingStream}
             onOpenChange={(open) => !open && setTestingStream(null)}
-            streamUrl={testingStream?.input_url || ''}
+            streamUrl={testingStream ? getStreamUrl(testingStream.name, testingStream.input_type, testingStream.input_url) : ''}
             streamName={testingStream?.name || ''}
             webvttUrl={testingStream?.webvtt_enabled ? testingStream.webvtt_url : null}
             webvttLabel={testingStream?.webvtt_label}
