@@ -54,16 +54,17 @@ export const useSettings = () => {
   };
 
   const getStreamUrl = (streamName: string, inputType?: string, inputUrl?: string) => {
-    const domain = settings.serverDomain || 'your-server.com';
-    const protocol = settings.enableSSL ? 'https' : 'http';
-    
-    // For HLS/HTTP external streams, use proxy location
+    // For HLS streams, use the direct input URL
+    // This allows playing external HLS streams directly in the browser
     if (inputType === 'hls' && inputUrl) {
-      const slug = streamName.toLowerCase().replace(/\s+/g, '-');
-      return `${protocol}://${domain}/proxy/${slug}/manifest.m3u8`;
+      return inputUrl;
     }
     
-    // For RTMP/local streams, use standard live path
+    // For RTMP/SRT/other streams, construct the output URL
+    const domain = settings.serverDomain || window.location.host;
+    const protocol = settings.enableSSL ? 'https' : 'http';
+    
+    // For streams that need transcoding/proxying
     return `${protocol}://${domain}/live/${streamName}/playlist.m3u8`;
   };
 
