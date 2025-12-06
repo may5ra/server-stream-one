@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.m3u-import]
 verify_jwt = false
+
+[functions.sync-to-docker]
+verify_jwt = false

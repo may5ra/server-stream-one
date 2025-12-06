@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useDockerSync } from "./useDockerSync";
 
 export interface Stream {
   id: string;
@@ -28,6 +29,7 @@ export const useStreams = () => {
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { syncToDocker } = useDockerSync();
 
   const fetchStreams = async () => {
     setLoading(true);
@@ -79,6 +81,9 @@ export const useStreams = () => {
       return null;
     }
     
+    // Sync to Docker
+    await syncToDocker('streams', 'insert', data);
+    
     setStreams((prev) => [data, ...prev]);
     toast({ title: "Uspješno", description: "Stream dodan" });
     return data;
@@ -95,6 +100,12 @@ export const useStreams = () => {
       return false;
     }
 
+    // Sync to Docker
+    const updatedStream = streams.find(s => s.id === id);
+    if (updatedStream) {
+      await syncToDocker('streams', 'update', { ...updatedStream, ...updates });
+    }
+
     setStreams((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
     toast({ title: "Ažurirano", description: "Stream ažuriran" });
     return true;
@@ -107,6 +118,9 @@ export const useStreams = () => {
       toast({ title: "Greška", description: error.message, variant: "destructive" });
       return false;
     }
+
+    // Sync to Docker
+    await syncToDocker('streams', 'delete', { id });
 
     setStreams((prev) => prev.filter((s) => s.id !== id));
     toast({ title: "Obrisano", description: "Stream uklonjen" });
