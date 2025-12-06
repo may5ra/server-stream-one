@@ -54,9 +54,15 @@ export const useSettings = () => {
   };
 
   const getStreamUrl = (streamName: string, inputType?: string, inputUrl?: string) => {
-    // For HLS streams, use the direct input URL
-    // This allows playing external HLS streams directly in the browser
+    // For HLS streams, use the edge function proxy to bypass CORS
     if (inputType === 'hls' && inputUrl) {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (supabaseUrl) {
+        // Use edge function proxy - encodes the stream name for lookup
+        const encodedName = encodeURIComponent(streamName);
+        return `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}/index.m3u8`;
+      }
+      // Fallback to direct URL if no Supabase URL
       return inputUrl;
     }
     
@@ -64,7 +70,6 @@ export const useSettings = () => {
     const domain = settings.serverDomain || window.location.host;
     const protocol = settings.enableSSL ? 'https' : 'http';
     
-    // For streams that need transcoding/proxying
     return `${protocol}://${domain}/live/${streamName}/playlist.m3u8`;
   };
 
