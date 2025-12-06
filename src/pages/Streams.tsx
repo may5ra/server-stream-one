@@ -52,9 +52,11 @@ const Streams = () => {
     dvr_enabled: false,
     dvr_duration: 24,
     abr_enabled: false,
-    category: null,
-    bouquet: null,
-    channel_number: null,
+    category: null as string | null,
+    bouquet: null as string | null,
+    channel_number: null as number | null,
+    stream_icon: null as string | null,
+    epg_channel_id: null as string | null,
   });
 
   const filteredStreams = streams
@@ -107,6 +109,8 @@ const Streams = () => {
       category: null,
       bouquet: null,
       channel_number: null,
+      stream_icon: null,
+      epg_channel_id: null,
     });
     setIsAddOpen(false);
   };

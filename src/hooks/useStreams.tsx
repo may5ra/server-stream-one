@@ -22,6 +22,8 @@ export interface Stream {
   category: string | null;
   bouquet: string | null;
   channel_number: number | null;
+  stream_icon: string | null;
+  epg_channel_id: string | null;
 }
 
 export const useStreams = () => {
