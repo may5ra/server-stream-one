@@ -34,7 +34,15 @@ const Index = () => {
           </div>
 
           {/* Stats Grid */}
-          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <StatsCard
+              title="Streaming Korisnici"
+              value={`${stats.onlineUsers}/${stats.totalUsers}`}
+              change={stats.onlineUsers > 0 ? `${stats.activeConnections} aktivnih konekcija` : "Nema online korisnika"}
+              changeType={stats.onlineUsers > 0 ? "positive" : "neutral"}
+              icon={Users}
+              iconColor="text-success"
+            />
             <StatsCard
               title="Ukupno Streamova"
               value={stats.totalStreams}
@@ -53,9 +61,9 @@ const Index = () => {
             />
             <StatsCard
               title="Gledatelji"
-              value={stats.totalViewers}
-              change="Ukupno trenutno"
-              changeType="neutral"
+              value={stats.activeConnections}
+              change="Aktivne konekcije"
+              changeType={stats.activeConnections > 0 ? "positive" : "neutral"}
               icon={Users}
               iconColor="text-warning"
             />

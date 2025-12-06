@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useSettings } from "@/hooks/useSettings";
 
 export interface DashboardStats {
   totalStreams: number;
@@ -11,6 +12,9 @@ export interface DashboardStats {
   avgMemory: number;
   avgDisk: number;
   avgNetwork: number;
+  totalUsers: number;
+  onlineUsers: number;
+  activeConnections: number;
 }
 
 export interface RecentStream {
@@ -45,34 +49,34 @@ export const useDashboardStats = () => {
     avgMemory: 0,
     avgDisk: 0,
     avgNetwork: 0,
+    totalUsers: 0,
+    onlineUsers: 0,
+    activeConnections: 0,
   });
   const [recentStreams, setRecentStreams] = useState<RecentStream[]>([]);
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const { settings } = useSettings();
 
   const fetchData = async () => {
     setLoading(true);
 
-    // Fetch streams
-    const { data: streamsData } = await supabase
-      .from("streams")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(10);
+    // Fetch from Supabase
+    const [streamsRes, serversRes, usersRes] = await Promise.all([
+      supabase.from("streams").select("*").order("created_at", { ascending: false }).limit(10),
+      supabase.from("servers").select("*").order("created_at", { ascending: false }),
+      supabase.from("streaming_users").select("*")
+    ]);
 
-    // Fetch servers
-    const { data: serversData } = await supabase
-      .from("servers")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const streams = streamsRes.data || [];
+    const serversList = serversRes.data || [];
+    const usersList = usersRes.data || [];
 
-    const streams = streamsData || [];
-    const serversList = serversData || [];
-
-    // Calculate stats
+    // Calculate stats from Supabase data
     const activeStreams = streams.filter((s) => s.status === "live").length;
-    const totalViewers = streams.reduce((sum, s) => sum + (s.viewers || 0), 0);
     const onlineServers = serversList.filter((s) => s.status === "online").length;
+    const onlineUsers = usersList.filter((u) => u.status === "online").length;
+    const activeConnections = usersList.reduce((sum, u) => sum + (u.connections || 0), 0);
 
     // Calculate averages from online servers
     const onlineServersList = serversList.filter((s) => s.status === "online");
@@ -92,13 +96,16 @@ export const useDashboardStats = () => {
     setStats({
       totalStreams: streams.length,
       activeStreams,
-      totalViewers,
+      totalViewers: activeConnections, // Active connections = viewers
       totalServers: serversList.length,
       onlineServers,
       avgCpu,
       avgMemory,
       avgDisk,
       avgNetwork,
+      totalUsers: usersList.length,
+      onlineUsers,
+      activeConnections,
     });
 
     setRecentStreams(streams.slice(0, 5));
@@ -108,6 +115,10 @@ export const useDashboardStats = () => {
 
   useEffect(() => {
     fetchData();
+    
+    // Refresh stats every 10 seconds
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   return {
