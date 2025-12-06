@@ -13,6 +13,10 @@ import Settings from "./pages/Settings";
 import Database from "./pages/Database";
 import Activity from "./pages/Activity";
 import Security from "./pages/Security";
+import VOD from "./pages/VOD";
+import EPG from "./pages/EPG";
+import Series from "./pages/Series";
+import Resellers from "./pages/Resellers";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -30,6 +34,10 @@ const App = () => (
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
             <Route path="/streams" element={<ProtectedRoute><Streams /></ProtectedRoute>} />
+            <Route path="/vod" element={<ProtectedRoute><VOD /></ProtectedRoute>} />
+            <Route path="/series" element={<ProtectedRoute><Series /></ProtectedRoute>} />
+            <Route path="/epg" element={<ProtectedRoute><EPG /></ProtectedRoute>} />
+            <Route path="/resellers" element={<ProtectedRoute><Resellers /></ProtectedRoute>} />
             <Route path="/servers" element={<ProtectedRoute><Servers /></ProtectedRoute>} />
             <Route path="/database" element={<ProtectedRoute><Database /></ProtectedRoute>} />
             <Route path="/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
