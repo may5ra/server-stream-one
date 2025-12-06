@@ -186,7 +186,99 @@ app.delete('/api/streaming-users/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ==================== XTREAM CODES API ====================
+// ==================== STREAMING USERS SYNC (from Supabase) ====================
+
+app.post('/api/streaming-users/sync', async (req, res) => {
+  try {
+    const { users } = req.body;
+    
+    if (!Array.isArray(users)) {
+      return res.status(400).json({ error: 'Users array required' });
+    }
+    
+    let synced = 0, errors = [];
+    
+    for (const user of users) {
+      try {
+        await pool.query(`
+          INSERT INTO streaming_users (id, username, password, max_connections, expiry_date, status, connections, reseller_id, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (id) DO UPDATE SET
+            username = EXCLUDED.username,
+            password = EXCLUDED.password,
+            max_connections = EXCLUDED.max_connections,
+            expiry_date = EXCLUDED.expiry_date,
+            status = EXCLUDED.status,
+            reseller_id = EXCLUDED.reseller_id,
+            updated_at = NOW()
+        `, [
+          user.id,
+          user.username,
+          user.password,
+          user.max_connections || 1,
+          user.expiry_date,
+          user.status || 'offline',
+          user.connections || 0,
+          user.reseller_id || null,
+          user.created_at || new Date().toISOString()
+        ]);
+        synced++;
+      } catch (err) {
+        errors.push({ username: user.username, error: err.message });
+      }
+    }
+    
+    console.log(`[Sync] Synced ${synced} streaming users`);
+    res.json({ success: true, synced, errors });
+  } catch (error) {
+    console.error('[Sync] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/streaming-users/sync-one', async (req, res) => {
+  try {
+    const user = req.body;
+    
+    await pool.query(`
+      INSERT INTO streaming_users (id, username, password, max_connections, expiry_date, status, connections, reseller_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (id) DO UPDATE SET
+        username = EXCLUDED.username,
+        password = EXCLUDED.password,
+        max_connections = EXCLUDED.max_connections,
+        expiry_date = EXCLUDED.expiry_date,
+        status = EXCLUDED.status,
+        reseller_id = EXCLUDED.reseller_id,
+        updated_at = NOW()
+    `, [
+      user.id,
+      user.username,
+      user.password,
+      user.max_connections || 1,
+      user.expiry_date,
+      user.status || 'offline',
+      user.connections || 0,
+      user.reseller_id || null
+    ]);
+    
+    console.log(`[Sync] Synced user: ${user.username}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Sync] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/streaming-users/sync/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM streaming_users WHERE id = $1', [req.params.id]);
+    console.log(`[Sync] Deleted user: ${req.params.id}`);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.get('/player_api.php', async (req, res) => {
   try {
