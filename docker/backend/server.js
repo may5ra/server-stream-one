@@ -450,15 +450,26 @@ app.get('/get.php', async (req, res) => {
       return res.status(401).send('Account expired');
     }
     
-    const settingsResult = await pool.query('SELECT key, value FROM panel_settings');
-    const settings = {};
-    settingsResult.rows.forEach(row => { settings[row.key] = row.value; });
+    // Get settings from DB first, then fall back to env variables
+    let serverDomain, httpPort, protocol;
     
-    // Get the actual server IP/domain from request host or settings
-    const requestHost = req.headers.host?.split(':')[0] || req.hostname || req.ip;
-    const serverDomain = settings.server_domain || requestHost || 'localhost';
-    const httpPort = settings.http_port || '80';
-    const protocol = settings.ssl_enabled === 'true' ? 'https' : 'http';
+    try {
+      const settingsResult = await pool.query('SELECT key, value FROM panel_settings');
+      const settings = {};
+      settingsResult.rows.forEach(row => { settings[row.key] = row.value; });
+      
+      // Use X-Forwarded headers first (from nginx), then env vars, then request host
+      const forwardedHost = req.headers['x-forwarded-host'];
+      const requestHost = req.headers.host?.split(':')[0] || req.hostname;
+      serverDomain = settings.server_domain || process.env.SERVER_DOMAIN || forwardedHost || requestHost;
+      httpPort = settings.http_port || process.env.HTTP_PORT || '80';
+      protocol = (settings.ssl_enabled === 'true' || req.headers['x-forwarded-proto'] === 'https') ? 'https' : 'http';
+    } catch (e) {
+      // Fallback if DB query fails
+      serverDomain = process.env.SERVER_DOMAIN || req.headers['x-forwarded-host'] || req.headers.host?.split(':')[0] || 'localhost';
+      httpPort = process.env.HTTP_PORT || '80';
+      protocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+    }
     
     // Build base URL - only include port if not default
     let baseUrl;
