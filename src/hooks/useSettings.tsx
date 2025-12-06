@@ -54,25 +54,32 @@ export const useSettings = () => {
   };
 
   const getStreamUrl = (streamName: string, inputType?: string, inputUrl?: string) => {
+    const encodedName = encodeURIComponent(streamName);
+    
+    // Determine if we're in Lovable cloud preview
+    const isLovablePreview = window.location.hostname.includes('lovable.app') || 
+                              window.location.hostname.includes('lovableproject.com');
+    
     // For HLS streams, use proxy to bypass CORS
     if (inputType === 'hls' && inputUrl) {
-      const encodedName = encodeURIComponent(streamName);
-      
       // If running in Lovable preview, use Supabase edge function
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (supabaseUrl && window.location.hostname.includes('lovable')) {
-        return `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}/index.m3u8`;
+      if (isLovablePreview) {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (supabaseUrl) {
+          return `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}/index.m3u8`;
+        }
       }
       
       // For self-hosted Docker, use local proxy endpoint
+      // Use current host (which should be the Docker nginx on port 80)
       const domain = settings.serverDomain || window.location.host;
-      const protocol = settings.enableSSL ? 'https' : 'http';
+      const protocol = settings.enableSSL ? 'https' : (window.location.protocol === 'https:' ? 'https' : 'http');
       return `${protocol}://${domain}/proxy/${encodedName}/index.m3u8`;
     }
     
     // For RTMP/SRT/other streams, construct the output URL
     const domain = settings.serverDomain || window.location.host;
-    const protocol = settings.enableSSL ? 'https' : 'http';
+    const protocol = settings.enableSSL ? 'https' : (window.location.protocol === 'https:' ? 'https' : 'http');
     
     return `${protocol}://${domain}/live/${streamName}/playlist.m3u8`;
   };
