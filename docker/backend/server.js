@@ -520,6 +520,81 @@ app.put('/api/settings', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== STREAM PROXY ====================
+
+// Proxy endpoint for HLS streams (bypass CORS)
+app.get('/proxy/:streamName/*', async (req, res) => {
+  try {
+    const { streamName } = req.params;
+    const filePath = req.params[0] || 'index.m3u8';
+    
+    console.log(`Stream proxy request: ${streamName}/${filePath}`);
+    
+    // Look up stream from database
+    const result = await pool.query(
+      'SELECT input_url, name, status FROM streams WHERE name = $1',
+      [decodeURIComponent(streamName)]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Stream not found' });
+    }
+    
+    const stream = result.rows[0];
+    if (!stream.input_url) {
+      return res.status(400).json({ error: 'Stream has no source URL' });
+    }
+    
+    // Construct target URL
+    let targetUrl;
+    const inputUrl = stream.input_url.trim();
+    
+    if (inputUrl.endsWith('/')) {
+      targetUrl = `${inputUrl}${filePath}`;
+    } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
+      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+      targetUrl = `${baseUrl}${filePath}`;
+    } else {
+      targetUrl = `${inputUrl}/${filePath}`;
+    }
+    
+    console.log(`Proxying to: ${targetUrl}`);
+    
+    // Fetch from original source
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`Upstream error: ${response.status}`);
+      return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+    }
+    
+    // Set content type
+    let contentType = response.headers.get('content-type') || 'application/octet-stream';
+    if (filePath.endsWith('.m3u8')) {
+      contentType = 'application/vnd.apple.mpegurl';
+    } else if (filePath.endsWith('.ts')) {
+      contentType = 'video/mp2t';
+    }
+    
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+    
+    const body = await response.arrayBuffer();
+    res.send(Buffer.from(body));
+    
+  } catch (error) {
+    console.error('Proxy error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

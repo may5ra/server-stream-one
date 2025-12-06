@@ -54,16 +54,20 @@ export const useSettings = () => {
   };
 
   const getStreamUrl = (streamName: string, inputType?: string, inputUrl?: string) => {
-    // For HLS streams, use the edge function proxy to bypass CORS
+    // For HLS streams, use proxy to bypass CORS
     if (inputType === 'hls' && inputUrl) {
+      const encodedName = encodeURIComponent(streamName);
+      
+      // If running in Lovable preview, use Supabase edge function
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (supabaseUrl) {
-        // Use edge function proxy - encodes the stream name for lookup
-        const encodedName = encodeURIComponent(streamName);
+      if (supabaseUrl && window.location.hostname.includes('lovable')) {
         return `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}/index.m3u8`;
       }
-      // Fallback to direct URL if no Supabase URL
-      return inputUrl;
+      
+      // For self-hosted Docker, use local proxy endpoint
+      const domain = settings.serverDomain || window.location.host;
+      const protocol = settings.enableSSL ? 'https' : 'http';
+      return `${protocol}://${domain}/proxy/${encodedName}/index.m3u8`;
     }
     
     // For RTMP/SRT/other streams, construct the output URL
