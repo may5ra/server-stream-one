@@ -718,46 +718,26 @@ app.get('/proxy/:username/:password/:streamName/*', async (req, res) => {
   }
 });
 
-// Legacy proxy without auth - handles /proxy/:streamName/* format
-// Also catches requests forwarded from the auth handler when p1 is a stream name
-app.get('/proxy/:streamName/*', async (req, res) => {
+// Legacy proxy without auth - handles /proxy/:streamName/file format (2 segments only)
+app.get('/proxy/:streamName/:file', async (req, res) => {
   try {
-    let streamName = req.params.streamName;
-    let filePath = req.params[0] || 'index.m3u8';
+    const { streamName, file } = req.params;
+    const clientIp = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     
-    // Handle case where path has multiple segments (e.g., POPTV/Video-5M/index.m3u8)
-    // The streamName might be just the first part, with rest in filePath
-    const fullPath = `${streamName}/${filePath}`;
-    const pathParts = fullPath.split('/');
+    console.log(`[Legacy Proxy] Request: ${streamName}/${file} from ${clientIp}`);
     
-    // Try to find a matching stream by checking different combinations
-    let stream = null;
-    let actualStreamName = streamName;
-    let actualFilePath = filePath;
-    
-    // First try: exact streamName match
-    let result = await pool.query(
+    // Look up stream
+    const result = await pool.query(
       'SELECT input_url, name, status FROM streams WHERE name = $1',
       [decodeURIComponent(streamName)]
     );
     
-    if (result.rows.length > 0) {
-      stream = result.rows[0];
-      actualStreamName = streamName;
-      actualFilePath = filePath;
-    } else {
-      // Second try: maybe streamName includes subpath, check first segment only
-      // This handles URLs like /proxy/StreamName/subpath/file.m3u8
-      console.log(`[Legacy Proxy] Stream "${streamName}" not found, path: ${fullPath}`);
-    }
-    
-    if (!stream) {
-      console.log(`[Legacy Proxy] No stream found for: ${streamName}`);
+    if (result.rows.length === 0) {
+      console.log(`[Legacy Proxy] Stream not found: ${streamName}`);
       return res.status(404).json({ error: 'Stream not found' });
     }
     
-    console.log(`[Legacy Proxy] Serving: ${actualStreamName}/${actualFilePath}`);
-    
+    const stream = result.rows[0];
     if (!stream.input_url) {
       return res.status(400).json({ error: 'Stream has no source URL' });
     }
@@ -767,12 +747,12 @@ app.get('/proxy/:streamName/*', async (req, res) => {
     const inputUrl = stream.input_url.trim();
     
     if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${actualFilePath}`;
+      targetUrl = `${inputUrl}${file}`;
     } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${actualFilePath}`;
+      targetUrl = `${baseUrl}${file}`;
     } else {
-      targetUrl = `${inputUrl}/${actualFilePath}`;
+      targetUrl = `${inputUrl}/${file}`;
     }
     
     console.log(`[Legacy Proxy] Fetching: ${targetUrl}`);
@@ -785,23 +765,92 @@ app.get('/proxy/:streamName/*', async (req, res) => {
     });
     
     if (!response.ok) {
-      console.error(`[Legacy Proxy] Upstream error: ${response.status} for ${targetUrl}`);
+      console.error(`[Legacy Proxy] Upstream error: ${response.status}`);
       return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
     }
     
     let contentType = response.headers.get('content-type') || 'application/octet-stream';
-    if (actualFilePath.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
-    else if (actualFilePath.endsWith('.ts')) contentType = 'video/mp2t';
+    if (file.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+    else if (file.endsWith('.ts')) contentType = 'video/mp2t';
     
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', actualFilePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+    res.setHeader('Cache-Control', file.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
     
     const body = await response.arrayBuffer();
     res.send(Buffer.from(body));
     
   } catch (error) {
     console.error('[Legacy Proxy] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Legacy proxy for deeper paths - /proxy/:streamName/subpath/file
+app.get('/proxy/:streamName/*', async (req, res) => {
+  try {
+    const { streamName } = req.params;
+    const filePath = req.params[0] || 'index.m3u8';
+    const clientIp = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    
+    console.log(`[Legacy Proxy Deep] Request: ${streamName}/${filePath} from ${clientIp}`);
+    
+    // Look up stream
+    const result = await pool.query(
+      'SELECT input_url, name, status FROM streams WHERE name = $1',
+      [decodeURIComponent(streamName)]
+    );
+    
+    if (result.rows.length === 0) {
+      console.log(`[Legacy Proxy Deep] Stream not found: ${streamName}`);
+      return res.status(404).json({ error: 'Stream not found' });
+    }
+    
+    const stream = result.rows[0];
+    if (!stream.input_url) {
+      return res.status(400).json({ error: 'Stream has no source URL' });
+    }
+    
+    // Construct target URL
+    let targetUrl;
+    const inputUrl = stream.input_url.trim();
+    
+    if (inputUrl.endsWith('/')) {
+      targetUrl = `${inputUrl}${filePath}`;
+    } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
+      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+      targetUrl = `${baseUrl}${filePath}`;
+    } else {
+      targetUrl = `${inputUrl}/${filePath}`;
+    }
+    
+    console.log(`[Legacy Proxy Deep] Fetching: ${targetUrl}`);
+    
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`[Legacy Proxy Deep] Upstream error: ${response.status}`);
+      return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+    }
+    
+    let contentType = response.headers.get('content-type') || 'application/octet-stream';
+    if (filePath.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+    else if (filePath.endsWith('.ts')) contentType = 'video/mp2t';
+    
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+    
+    const body = await response.arrayBuffer();
+    res.send(Buffer.from(body));
+    
+  } catch (error) {
+    console.error('[Legacy Proxy Deep] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
