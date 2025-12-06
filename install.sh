@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 INSTALL_DIR="/opt/streampanel"
-REPO_URL="https://github.com/YOUR_USERNAME/YOUR_REPO.git"  # Update after GitHub connect
+REPO_URL="https://github.com/may5ra/server-stream-one.git"
 
 echo -e "${BLUE}"
 echo "╔═══════════════════════════════════════════════════════════╗"

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # StreamPanel Quick Install (one-liner)
-# Usage: curl -fsSL https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/install-quick.sh | sudo bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/may5ra/server-stream-one/main/install-quick.sh | sudo bash
 
 set -e
 
@@ -17,7 +17,7 @@ mkdir -p $INSTALL_DIR
 cd $INSTALL_DIR
 
 # Clone repo
-git clone https://github.com/YOUR_USER/YOUR_REPO.git . 2>/dev/null || git pull
+git clone https://github.com/may5ra/server-stream-one.git . 2>/dev/null || git pull
 
 # Run installer
 chmod +x install.sh
