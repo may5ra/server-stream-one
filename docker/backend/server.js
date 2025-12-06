@@ -578,32 +578,14 @@ app.get('/api/connections/:userId', authenticateToken, async (req, res) => {
 
 // Proxy endpoint for HLS streams with auth (bypass CORS)
 // URL format: /proxy/:username/:password/:streamName/*
-// This route must check if it's really an authenticated request or a legacy request
-app.get('/proxy/:p1/:p2/:p3/*', async (req, res, next) => {
+app.get('/proxy/:username/:password/:streamName/*', async (req, res) => {
   try {
-    const { p1, p2, p3 } = req.params;
+    const { username, password, streamName } = req.params;
     const filePath = req.params[0] || 'index.m3u8';
     const clientIp = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    
-    // First, check if p1 is a stream name (legacy format) by looking in database
-    const streamCheck = await pool.query(
-      'SELECT id FROM streams WHERE name = $1',
-      [decodeURIComponent(p1)]
-    );
-    
-    // If p1 is a stream name, this is actually a legacy request - pass to next handler
-    if (streamCheck.rows.length > 0) {
-      console.log(`[Proxy] Detected legacy format for stream: ${p1}, forwarding...`);
-      return next();
-    }
-    
-    // Otherwise, treat as authenticated request: p1=username, p2=password, p3=streamName
-    const username = p1;
-    const password = p2;
-    const streamName = p3;
     const connectionId = `${clientIp}-${streamName}-${Date.now()}`;
     
-    console.log(`[Proxy] Auth request: ${username}/${streamName}/${filePath} from ${clientIp}`);
+    console.log(`[Proxy Auth] ${username}/${streamName}/${filePath} from ${clientIp}`);
     
     // Authenticate streaming user
     const userResult = await pool.query(
@@ -612,7 +594,7 @@ app.get('/proxy/:p1/:p2/:p3/*', async (req, res, next) => {
     );
     
     if (userResult.rows.length === 0) {
-      console.log(`[Proxy] Auth failed for ${username}`);
+      console.log(`[Proxy Auth] Failed for ${username}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
