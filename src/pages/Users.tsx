@@ -122,7 +122,8 @@ const Users = () => {
       const encodedName = encodeURIComponent(stream.name);
       
       playlist += `#EXTINF:-1 tvg-id="${epgId}" tvg-name="${stream.name}" tvg-logo="${streamIcon}" group-title="${category}",${stream.name}\n`;
-      playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/index.m3u8\n`;
+      // Format: /username/password/streamName (for IPTV compatibility)
+      playlist += `${serverUrl}/${user.username}/${user.password}/${encodedName}\n`;
     });
 
     return playlist;
