@@ -613,8 +613,9 @@ app.put('/api/settings', authenticateToken, async (req, res) => {
 });
 
 // ==================== STREAM PROXY (AUTHENTICATED) ====================
+// Use /live/ path for authenticated streams to avoid conflicts with legacy /proxy/
 
-app.get('/proxy/:username/:password/:streamName/:file(*)', async (req, res) => {
+app.get('/live/:username/:password/:streamName/:file(*)', async (req, res) => {
   try {
     const { username, password, streamName, file } = req.params;
     const filePath = file || 'index.m3u8';
@@ -640,33 +641,26 @@ app.get('/proxy/:username/:password/:streamName/:file(*)', async (req, res) => {
       return res.status(403).json({ error: 'Account expired' });
     }
     
-    // Check if user was inactive for more than 30 seconds - reset connections
-    const lastActive = user.last_active ? new Date(user.last_active) : null;
-    const now = new Date();
-    const inactiveSeconds = lastActive ? (now.getTime() - lastActive.getTime()) / 1000 : 9999;
-    
-    if (inactiveSeconds > 30) {
-      // Reset connections if user was inactive
-      await pool.query(
-        'UPDATE streaming_users SET connections = 1, last_active = NOW(), status = $1 WHERE id = $2',
-        ['online', user.id]
-      );
-      console.log(`[Proxy Auth] Reset connections for ${username} (inactive ${Math.round(inactiveSeconds)}s)`);
-    } else {
-      // Check connection limit
-      const currentConnections = user.connections || 0;
-      const maxConnections = user.max_connections || 1;
+    // Only check/update connections for main playlist requests
+    if (filePath === 'index.m3u8') {
+      const lastActive = user.last_active ? new Date(user.last_active) : null;
+      const now = new Date();
+      const inactiveSeconds = lastActive ? (now.getTime() - lastActive.getTime()) / 1000 : 9999;
       
-      if (currentConnections >= maxConnections) {
-        console.log(`[Proxy Auth] Connection limit reached for: ${username} (${currentConnections}/${maxConnections})`);
-        return res.status(429).json({ error: 'Connection limit reached' });
+      if (inactiveSeconds > 60) {
+        // Reset connections if user was inactive for more than 60 seconds
+        await pool.query(
+          'UPDATE streaming_users SET connections = 1, last_active = NOW(), status = $1 WHERE id = $2',
+          ['online', user.id]
+        );
+        console.log(`[Proxy Auth] New session for ${username}`);
+      } else {
+        // Just update last active, don't increment connections
+        await pool.query(
+          'UPDATE streaming_users SET last_active = NOW() WHERE id = $1',
+          [user.id]
+        );
       }
-      
-      // Update last active time
-      await pool.query(
-        'UPDATE streaming_users SET last_active = NOW(), status = $1 WHERE id = $2',
-        ['online', user.id]
-      );
     }
     
     // Look up stream
