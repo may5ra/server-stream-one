@@ -17,6 +17,9 @@ cd streampanel/docker
 # Copy and edit environment file
 cp .env.example .env
 nano .env
+
+# IMPORTANT: Set your server IP/domain in .env:
+# SERVER_DOMAIN=38.180.100.86
 ```
 
 ### 3. Start Services
