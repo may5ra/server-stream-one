@@ -371,7 +371,15 @@ app.get('/get.php', async (req, res) => {
     
     for (const stream of streams.rows) {
       playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${stream.category || ''}",${stream.name}\n`;
-      playlist += `${baseUrl}/live/${username}/${password}/${stream.id}.m3u8\n`;
+      
+      // For HLS streams, use proxy URL format
+      if (stream.input_type === 'hls') {
+        const encodedName = encodeURIComponent(stream.name);
+        playlist += `${baseUrl}/proxy/${encodedName}/index.m3u8\n`;
+      } else {
+        // For RTMP/other streams, use traditional format
+        playlist += `${baseUrl}/live/${username}/${password}/${stream.id}.m3u8\n`;
+      }
     }
     
     res.setHeader('Content-Type', 'audio/x-mpegurl');
