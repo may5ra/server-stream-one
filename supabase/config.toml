@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.epg-import]
 verify_jwt = false
+
+[functions.m3u-import]
+verify_jwt = false
