@@ -16,7 +16,12 @@ import {
   Shield,
   Tv,
   LogOut,
-  X
+  X,
+  Film,
+  Calendar,
+  Clapperboard,
+  UserCog,
+  Wifi
 } from "lucide-react";
 
 interface NavItem {
@@ -28,7 +33,12 @@ interface NavItem {
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: Users, label: "Users", href: "/users" },
+  { icon: Wifi, label: "Connections", href: "/connections" },
   { icon: Tv, label: "Streams", href: "/streams" },
+  { icon: Film, label: "VOD", href: "/vod" },
+  { icon: Clapperboard, label: "Series", href: "/series" },
+  { icon: Calendar, label: "EPG", href: "/epg" },
+  { icon: UserCog, label: "Resellers", href: "/resellers" },
   { icon: Server, label: "Servers", href: "/servers" },
   { icon: Database, label: "Database", href: "/database" },
   { icon: Activity, label: "Activity", href: "/activity" },
