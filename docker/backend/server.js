@@ -493,13 +493,20 @@ app.get('/get.php', async (req, res) => {
     // Live streams
     const streams = await pool.query('SELECT * FROM streams WHERE status != $1 ORDER BY channel_number', ['error']);
     
-    // Determine output format
-    const outputFormat = output === 'm3u8' ? 'index.m3u8' : 'index.m3u8';
+    // Determine output format: m3u8 (HLS) or ts (direct transport stream)
+    // output=ts generates .ts URLs, output=m3u8 or default generates HLS index.m3u8
+    const useTs = output === 'ts';
     
     for (const stream of streams.rows) {
       playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${stream.category || ''}",${stream.name}\n`;
-      // Include /proxy/ prefix and .m3u8 extension for HLS streaming
-      playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}.m3u8\n`;
+      // Format: /proxy/username/password/streamName/index.m3u8 or /stream.ts
+      if (useTs) {
+        // TS format for direct transport stream access
+        playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}/stream.ts\n`;
+      } else {
+        // HLS format (default) - index.m3u8
+        playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}/index.m3u8\n`;
+      }
     }
     
     res.setHeader('Content-Type', 'audio/x-mpegurl');
