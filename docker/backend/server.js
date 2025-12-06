@@ -498,8 +498,8 @@ app.get('/get.php', async (req, res) => {
     
     for (const stream of streams.rows) {
       playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${stream.category || ''}",${stream.name}\n`;
-      // Include username and password in the stream URL for authentication
-      playlist += `${baseUrl}/${username}/${password}/${encodeURIComponent(stream.name)}\n`;
+      // Include /proxy/ prefix and .m3u8 extension for HLS streaming
+      playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}.m3u8\n`;
     }
     
     res.setHeader('Content-Type', 'audio/x-mpegurl');
