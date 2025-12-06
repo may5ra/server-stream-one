@@ -578,14 +578,32 @@ app.get('/api/connections/:userId', authenticateToken, async (req, res) => {
 
 // Proxy endpoint for HLS streams with auth (bypass CORS)
 // URL format: /proxy/:username/:password/:streamName/*
-app.get('/proxy/:username/:password/:streamName/*', async (req, res) => {
+// This route must check if it's really an authenticated request or a legacy request
+app.get('/proxy/:p1/:p2/:p3/*', async (req, res, next) => {
   try {
-    const { username, password, streamName } = req.params;
+    const { p1, p2, p3 } = req.params;
     const filePath = req.params[0] || 'index.m3u8';
     const clientIp = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    
+    // First, check if p1 is a stream name (legacy format) by looking in database
+    const streamCheck = await pool.query(
+      'SELECT id FROM streams WHERE name = $1',
+      [decodeURIComponent(p1)]
+    );
+    
+    // If p1 is a stream name, this is actually a legacy request - pass to next handler
+    if (streamCheck.rows.length > 0) {
+      console.log(`[Proxy] Detected legacy format for stream: ${p1}, forwarding...`);
+      return next();
+    }
+    
+    // Otherwise, treat as authenticated request: p1=username, p2=password, p3=streamName
+    const username = p1;
+    const password = p2;
+    const streamName = p3;
     const connectionId = `${clientIp}-${streamName}-${Date.now()}`;
     
-    console.log(`[Proxy] Request: ${username}/${streamName}/${filePath} from ${clientIp}`);
+    console.log(`[Proxy] Auth request: ${username}/${streamName}/${filePath} from ${clientIp}`);
     
     // Authenticate streaming user
     const userResult = await pool.query(
@@ -718,25 +736,46 @@ app.get('/proxy/:username/:password/:streamName/*', async (req, res) => {
   }
 });
 
-// Legacy proxy without auth (for backwards compatibility - will be deprecated)
+// Legacy proxy without auth - handles /proxy/:streamName/* format
+// Also catches requests forwarded from the auth handler when p1 is a stream name
 app.get('/proxy/:streamName/*', async (req, res) => {
   try {
-    const { streamName } = req.params;
-    const filePath = req.params[0] || 'index.m3u8';
+    let streamName = req.params.streamName;
+    let filePath = req.params[0] || 'index.m3u8';
     
-    console.log(`[Legacy Proxy] Request: ${streamName}/${filePath} - Consider using authenticated endpoint`);
+    // Handle case where path has multiple segments (e.g., POPTV/Video-5M/index.m3u8)
+    // The streamName might be just the first part, with rest in filePath
+    const fullPath = `${streamName}/${filePath}`;
+    const pathParts = fullPath.split('/');
     
-    // Look up stream from database
-    const result = await pool.query(
+    // Try to find a matching stream by checking different combinations
+    let stream = null;
+    let actualStreamName = streamName;
+    let actualFilePath = filePath;
+    
+    // First try: exact streamName match
+    let result = await pool.query(
       'SELECT input_url, name, status FROM streams WHERE name = $1',
       [decodeURIComponent(streamName)]
     );
     
-    if (result.rows.length === 0) {
+    if (result.rows.length > 0) {
+      stream = result.rows[0];
+      actualStreamName = streamName;
+      actualFilePath = filePath;
+    } else {
+      // Second try: maybe streamName includes subpath, check first segment only
+      // This handles URLs like /proxy/StreamName/subpath/file.m3u8
+      console.log(`[Legacy Proxy] Stream "${streamName}" not found, path: ${fullPath}`);
+    }
+    
+    if (!stream) {
+      console.log(`[Legacy Proxy] No stream found for: ${streamName}`);
       return res.status(404).json({ error: 'Stream not found' });
     }
     
-    const stream = result.rows[0];
+    console.log(`[Legacy Proxy] Serving: ${actualStreamName}/${actualFilePath}`);
+    
     if (!stream.input_url) {
       return res.status(400).json({ error: 'Stream has no source URL' });
     }
@@ -746,13 +785,15 @@ app.get('/proxy/:streamName/*', async (req, res) => {
     const inputUrl = stream.input_url.trim();
     
     if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${filePath}`;
+      targetUrl = `${inputUrl}${actualFilePath}`;
     } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${filePath}`;
+      targetUrl = `${baseUrl}${actualFilePath}`;
     } else {
-      targetUrl = `${inputUrl}/${filePath}`;
+      targetUrl = `${inputUrl}/${actualFilePath}`;
     }
+    
+    console.log(`[Legacy Proxy] Fetching: ${targetUrl}`);
     
     const response = await fetch(targetUrl, {
       headers: {
@@ -762,16 +803,17 @@ app.get('/proxy/:streamName/*', async (req, res) => {
     });
     
     if (!response.ok) {
+      console.error(`[Legacy Proxy] Upstream error: ${response.status} for ${targetUrl}`);
       return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
     }
     
     let contentType = response.headers.get('content-type') || 'application/octet-stream';
-    if (filePath.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
-    else if (filePath.endsWith('.ts')) contentType = 'video/mp2t';
+    if (actualFilePath.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+    else if (actualFilePath.endsWith('.ts')) contentType = 'video/mp2t';
     
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+    res.setHeader('Cache-Control', actualFilePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
     
     const body = await response.arrayBuffer();
     res.send(Buffer.from(body));
