@@ -111,17 +111,45 @@ export const StreamTestPlayer = ({
         const player = dashjs.MediaPlayer().create();
         dashRef.current = player;
         
+        // Extract base URL from the proxy URL to handle relative segment paths
+        const proxyBaseUrl = streamUrl.substring(0, streamUrl.lastIndexOf('/') + 1);
+        console.log("[DASH] Proxy base URL:", proxyBaseUrl);
+        
         player.initialize(video, streamUrl, false);
         player.updateSettings({
           streaming: {
             abr: {
               autoSwitchBitrate: { video: true, audio: true }
+            },
+            buffer: {
+              fastSwitchEnabled: true
             }
           }
         });
         
+        // Intercept and modify segment URLs to go through proxy
+        player.extend('RequestModifier', function () {
+          return {
+            modifyRequestURL: function (url: string) {
+              // If URL is relative or needs to be proxied
+              if (!url.startsWith('http') || !url.includes('/stream-proxy/')) {
+                // Check if it's a relative URL from the manifest
+                if (!url.startsWith('http')) {
+                  const newUrl = proxyBaseUrl + url;
+                  console.log("[DASH] Rewriting relative URL:", url, "->", newUrl);
+                  return newUrl;
+                }
+              }
+              return url;
+            },
+            modifyRequestHeader: function (xhr: XMLHttpRequest) {
+              return xhr;
+            }
+          };
+        }, true);
+        
         player.on(dashjs.MediaPlayer.events.MANIFEST_LOADED, () => {
-          console.log("[DASH] Manifest loaded");
+          console.log("[DASH] Manifest loaded successfully");
           setLoading(false);
           
           // Check for text tracks
@@ -150,7 +178,7 @@ export const StreamTestPlayer = ({
         });
         
         player.on(dashjs.MediaPlayer.events.CAN_PLAY, () => {
-          console.log("[DASH] Can play");
+          console.log("[DASH] Can play - starting playback");
           video.play().then(() => {
             setIsPlaying(true);
           }).catch((e) => {
@@ -158,10 +186,16 @@ export const StreamTestPlayer = ({
           });
         });
         
-        player.on(dashjs.MediaPlayer.events.ERROR, (e: { error?: { message?: string } }) => {
+        player.on(dashjs.MediaPlayer.events.ERROR, (e: { error?: { message?: string; code?: number } }) => {
           console.error("[DASH] Error:", e);
-          setError(`DASH greška: ${e.error?.message || 'Nepoznata greška'}`);
+          const errorMsg = e.error?.message || 'Nepoznata greška';
+          const errorCode = e.error?.code ? ` (kod: ${e.error.code})` : '';
+          setError(`DASH greška: ${errorMsg}${errorCode}`);
           setLoading(false);
+        });
+
+        player.on(dashjs.MediaPlayer.events.FRAGMENT_LOADING_STARTED, (e: { request?: { url?: string } }) => {
+          console.log("[DASH] Loading fragment:", e.request?.url);
         });
         
       } catch (e) {
