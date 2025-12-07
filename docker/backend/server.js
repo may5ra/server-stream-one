@@ -1214,28 +1214,36 @@ app.get('/proxy/*', async (req, res) => {
       return res.status(400).json({ error: 'Stream has no source URL' });
     }
     
+    // Cache for storing resolved base URLs after redirects
+    // Key: streamName, Value: { baseUrl, timestamp }
+    if (!global.streamBaseUrlCache) {
+      global.streamBaseUrlCache = new Map();
+    }
+    
     // Construct target URL
     let targetUrl;
     const inputUrl = stream.input_url.trim();
-    
-    // Handle different stream types
     let effectiveFilePath = filePath;
     
-    // For index.m3u8 or index.ts requests, use the input_url directly if it's already an m3u8
-    if (filePath === 'index.m3u8' || filePath === 'index.ts') {
+    // Check if we have a cached base URL for this stream (from previous redirect resolution)
+    const cachedBase = global.streamBaseUrlCache.get(decodedStreamName);
+    const cacheMaxAge = 5 * 60 * 1000; // 5 minutes cache
+    
+    if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts') {
+      // Use cached base URL for variant playlists and segments
+      targetUrl = cachedBase.baseUrl + filePath;
+      console.log(`[Proxy] Using cached base URL: ${targetUrl}`);
+    } else if (filePath === 'index.m3u8' || filePath === 'index.ts') {
+      // For main playlist requests, use input_url and resolve redirects
       if (inputUrl.endsWith('.m3u8')) {
-        // Input URL is already an m3u8 file - use it directly
         targetUrl = inputUrl;
-        effectiveFilePath = 'index.m3u8';
       } else if (inputUrl.endsWith('/')) {
         targetUrl = `${inputUrl}index.m3u8`;
-        effectiveFilePath = 'index.m3u8';
       } else {
         targetUrl = `${inputUrl}/index.m3u8`;
-        effectiveFilePath = 'index.m3u8';
       }
+      effectiveFilePath = 'index.m3u8';
     } else if (filePath === 'manifest.mpd') {
-      // For manifest.mpd requests, use the MPD URL directly
       if (inputUrl.endsWith('.mpd')) {
         targetUrl = inputUrl;
       } else if (inputUrl.endsWith('/')) {
@@ -1243,18 +1251,19 @@ app.get('/proxy/*', async (req, res) => {
       } else {
         targetUrl = `${inputUrl}/manifest.mpd`;
       }
+    } else if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge) {
+      // Use cached base for any other file type
+      targetUrl = cachedBase.baseUrl + filePath;
     } else if (inputUrl.endsWith('.mpd')) {
-      // For MPD streams requesting segments or other files
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${effectiveFilePath}`;
+      targetUrl = `${baseUrl}${filePath}`;
     } else if (inputUrl.endsWith('.m3u8')) {
-      // For HLS streams requesting segments - use base URL
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${effectiveFilePath}`;
+      targetUrl = `${baseUrl}${filePath}`;
     } else if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${effectiveFilePath}`;
+      targetUrl = `${inputUrl}${filePath}`;
     } else {
-      targetUrl = `${inputUrl}/${effectiveFilePath}`;
+      targetUrl = `${inputUrl}/${filePath}`;
     }
     
     console.log(`[Proxy] Target URL: ${targetUrl}`);
@@ -1318,6 +1327,16 @@ app.get('/proxy/*', async (req, res) => {
         break;
       }
       
+      // After following redirects, cache the base URL for this stream
+      if (redirectCount > 0 && (filePath === 'index.m3u8' || filePath === 'index.ts')) {
+        const resolvedBaseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
+        global.streamBaseUrlCache.set(decodedStreamName, {
+          baseUrl: resolvedBaseUrl,
+          timestamp: Date.now()
+        });
+        console.log(`[Proxy] Cached base URL for ${decodedStreamName}: ${resolvedBaseUrl}`);
+      }
+      
       if (redirectCount >= maxRedirects) {
         console.error(`[Proxy] Too many redirects`);
         clearTimeout(timeout);
@@ -1332,7 +1351,15 @@ app.get('/proxy/*', async (req, res) => {
         
         if (redirectUrl) {
           console.log(`[Proxy] Found HTML redirect, following to: ${redirectUrl}`);
-          // Follow the redirect URL
+          currentUrl = redirectUrl;
+          
+          // Cache this base URL too
+          const resolvedBaseUrl = redirectUrl.substring(0, redirectUrl.lastIndexOf('/') + 1);
+          global.streamBaseUrlCache.set(decodedStreamName, {
+            baseUrl: resolvedBaseUrl,
+            timestamp: Date.now()
+          });
+          
           response = await fetch(redirectUrl, {
             redirect: 'follow',
             headers: {
@@ -1368,39 +1395,43 @@ app.get('/proxy/*', async (req, res) => {
       const body = await response.arrayBuffer();
       let bodyBuffer = Buffer.from(body);
       
-      // For m3u8 playlists, rewrite relative URLs to absolute URLs
+      // For m3u8 playlists, rewrite relative URLs to proxy URLs
       if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') {
         let m3u8Content = bodyBuffer.toString('utf8');
-        const baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
         
-        // Rewrite relative URLs to absolute URLs
+        // Get the proxy base URL for this stream
+        const proxyBaseUrl = `/proxy/${encodeURIComponent(streamName)}/`;
+        
+        // Rewrite relative URLs to go through our proxy
         const lines = m3u8Content.split('\n');
         const rewrittenLines = lines.map(line => {
           const trimmedLine = line.trim();
-          // Skip comments and empty lines, but not URI= attributes
+          
+          // Skip comments and empty lines, but handle URI= attributes
           if (trimmedLine.startsWith('#')) {
             // Handle URI="..." in tags like EXT-X-MEDIA and EXT-X-I-FRAME-STREAM-INF
             if (trimmedLine.includes('URI="')) {
               return line.replace(/URI="([^"]+)"/g, (match, uri) => {
                 if (uri.startsWith('http://') || uri.startsWith('https://')) {
-                  return match; // Already absolute
+                  return match; // Already absolute - leave it
                 }
-                return `URI="${baseUrl}${uri}"`;
+                // Route through proxy
+                return `URI="${proxyBaseUrl}${uri}"`;
               });
             }
             return line;
           }
           if (!trimmedLine) return line;
           
-          // If it's a relative URL (not starting with http), make it absolute
+          // If it's a relative URL, route it through proxy
           if (!trimmedLine.startsWith('http://') && !trimmedLine.startsWith('https://')) {
-            return baseUrl + trimmedLine;
+            return proxyBaseUrl + trimmedLine;
           }
           return line;
         });
         
         m3u8Content = rewrittenLines.join('\n');
-        console.log(`[Proxy] Rewrote m3u8 URLs with base: ${baseUrl}`);
+        console.log(`[Proxy] Rewrote m3u8 URLs to use proxy: ${proxyBaseUrl}`);
         bodyBuffer = Buffer.from(m3u8Content, 'utf8');
       }
       
