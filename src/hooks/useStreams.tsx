@@ -2,6 +2,24 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+// Backend sync config - reads from panel_settings in Supabase
+const getBackendUrl = async (): Promise<string | null> => {
+  try {
+    const { data } = await supabase
+      .from("panel_settings")
+      .select("key, value")
+      .in("key", ["server_ip", "http_port"]);
+    
+    const serverIp = data?.find(s => s.key === "server_ip")?.value;
+    const httpPort = data?.find(s => s.key === "http_port")?.value || "3001";
+    
+    if (!serverIp) return null;
+    return `http://${serverIp}:${httpPort}`;
+  } catch {
+    return null;
+  }
+};
+
 export interface Stream {
   id: string;
   name: string;
@@ -26,6 +44,55 @@ export interface Stream {
   epg_channel_id: string | null;
 }
 
+// Sync stream to Docker backend
+const syncStreamToBackend = async (stream: Stream) => {
+  const backendUrl = await getBackendUrl();
+  if (!backendUrl) return;
+  
+  try {
+    await fetch(`${backendUrl}/api/streams/sync-one`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stream),
+    });
+    console.log(`[Sync] Stream synced: ${stream.name}`);
+  } catch (err) {
+    console.error(`[Sync] Failed to sync stream: ${stream.name}`, err);
+  }
+};
+
+// Delete stream from Docker backend
+const deleteStreamFromBackend = async (id: string) => {
+  const backendUrl = await getBackendUrl();
+  if (!backendUrl) return;
+  
+  try {
+    await fetch(`${backendUrl}/api/streams/sync/${id}`, {
+      method: 'DELETE',
+    });
+    console.log(`[Sync] Stream deleted: ${id}`);
+  } catch (err) {
+    console.error(`[Sync] Failed to delete stream: ${id}`, err);
+  }
+};
+
+// Sync all streams to Docker backend
+const syncAllStreamsToBackend = async (streams: Stream[]) => {
+  const backendUrl = await getBackendUrl();
+  if (!backendUrl) return;
+  
+  try {
+    await fetch(`${backendUrl}/api/streams/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ streams }),
+    });
+    console.log(`[Sync] All streams synced: ${streams.length}`);
+  } catch (err) {
+    console.error(`[Sync] Failed to sync all streams`, err);
+  }
+};
+
 export const useStreams = () => {
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +109,10 @@ export const useStreams = () => {
       toast({ title: "Greška", description: "Nije moguće učitati streamove", variant: "destructive" });
     } else {
       setStreams(data || []);
+      // Auto-sync all streams to backend on fetch
+      if (data && data.length > 0) {
+        syncAllStreamsToBackend(data as Stream[]);
+      }
     }
     setLoading(false);
   };
@@ -81,24 +152,32 @@ export const useStreams = () => {
       return null;
     }
     
+    // Sync to Docker backend
+    syncStreamToBackend(data as Stream);
+    
     setStreams((prev) => [data, ...prev]);
-    toast({ title: "Uspješno", description: "Stream dodan" });
+    toast({ title: "Uspješno", description: "Stream dodan i sinkroniziran" });
     return data;
   };
 
   const updateStream = async (id: string, updates: Partial<Stream>) => {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("streams")
       .update(updates)
-      .eq("id", id);
+      .eq("id", id)
+      .select()
+      .single();
 
     if (error) {
       toast({ title: "Greška", description: error.message, variant: "destructive" });
       return false;
     }
 
+    // Sync to Docker backend
+    syncStreamToBackend(data as Stream);
+
     setStreams((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-    toast({ title: "Ažurirano", description: "Stream ažuriran" });
+    toast({ title: "Ažurirano", description: "Stream ažuriran i sinkroniziran" });
     return true;
   };
 
@@ -109,6 +188,9 @@ export const useStreams = () => {
       toast({ title: "Greška", description: error.message, variant: "destructive" });
       return false;
     }
+
+    // Delete from Docker backend
+    deleteStreamFromBackend(id);
 
     setStreams((prev) => prev.filter((s) => s.id !== id));
     toast({ title: "Obrisano", description: "Stream uklonjen" });
