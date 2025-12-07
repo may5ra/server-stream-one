@@ -1261,6 +1261,7 @@ app.get('/proxy/*', async (req, res) => {
     
     try {
       const response = await fetch(targetUrl, {
+        redirect: 'follow', // IMPORTANT: Follow HTTP redirects (302, 301, etc.)
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
