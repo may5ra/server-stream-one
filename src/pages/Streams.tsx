@@ -27,7 +27,24 @@ const inputTypeLabels: Record<string, string> = {
   rtsp: "RTSP",
   srt: "SRT",
   hls: "HLS Pull",
+  mpd: "MPD/DASH",
   udp: "UDP/Multicast"
+};
+
+// Get unique bouquets from streams
+const getUniqueBouquets = (streams: Stream[]): string[] => {
+  const bouquets = streams
+    .map(s => s.bouquet)
+    .filter((b): b is string => b !== null && b !== undefined && b.trim() !== "");
+  return [...new Set(bouquets)].sort();
+};
+
+// Get unique categories from streams  
+const getUniqueCategories = (streams: Stream[]): string[] => {
+  const categories = streams
+    .map(s => s.category)
+    .filter((c): c is string => c !== null && c !== undefined && c.trim() !== "");
+  return [...new Set(categories)].sort();
 };
 
 const Streams = () => {
@@ -41,9 +58,15 @@ const Streams = () => {
   };
   const { settings, getStreamUrl } = useSettings();
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterBouquet, setFilterBouquet] = useState<string | null>(null);
+  const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingStream, setEditingStream] = useState<Stream | null>(null);
   const [testingStream, setTestingStream] = useState<Stream | null>(null);
+  
+  // Get unique values for filters
+  const uniqueBouquets = getUniqueBouquets(streams);
+  const uniqueCategories = getUniqueCategories(streams);
 
   const [newStream, setNewStream] = useState({
     name: "",
@@ -67,7 +90,12 @@ const Streams = () => {
   });
 
   const filteredStreams = streams
-    .filter(stream => stream.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter(stream => {
+      const matchesSearch = stream.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesBouquet = !filterBouquet || stream.bouquet === filterBouquet;
+      const matchesCategory = !filterCategory || stream.category === filterCategory;
+      return matchesSearch && matchesBouquet && matchesCategory;
+    })
     .sort((a, b) => {
       // Sort by category first
       if (a.category && !b.category) return -1;
@@ -256,7 +284,8 @@ const Streams = () => {
                           <SelectItem value="rtmp">RTMP</SelectItem>
                           <SelectItem value="rtsp">RTSP</SelectItem>
                           <SelectItem value="srt">SRT (Secure Reliable Transport)</SelectItem>
-                          <SelectItem value="hls">HLS Pull</SelectItem>
+                          <SelectItem value="hls">HLS Pull (.m3u8)</SelectItem>
+                          <SelectItem value="mpd">MPD/DASH (.mpd)</SelectItem>
                           <SelectItem value="udp">UDP/Multicast</SelectItem>
                         </SelectContent>
                       </Select>
@@ -271,6 +300,7 @@ const Streams = () => {
                           newStream.input_type === "rtmp" ? "rtmp://server/app/stream" :
                           newStream.input_type === "srt" ? "srt://server:port?streamid=..." :
                           newStream.input_type === "hls" ? "http://server/live.m3u8" :
+                          newStream.input_type === "mpd" ? "http://server/manifest.mpd" :
                           newStream.input_type === "udp" ? "udp://239.0.0.1:5000" :
                           "rtsp://server/stream"
                         }
@@ -478,9 +508,9 @@ const Streams = () => {
             </div>
           </div>
 
-          {/* Search */}
-          <div className="mb-6">
-            <div className="relative max-w-md">
+          {/* Search & Filters */}
+          <div className="mb-6 flex flex-wrap gap-4 items-center">
+            <div className="relative flex-1 min-w-[200px] max-w-md">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Pretraži streamove..."
@@ -489,6 +519,53 @@ const Streams = () => {
                 className="pl-10"
               />
             </div>
+            
+            {uniqueCategories.length > 0 && (
+              <Select 
+                value={filterCategory || "all"} 
+                onValueChange={(v) => setFilterCategory(v === "all" ? null : v)}
+              >
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Kategorija" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Sve kategorije</SelectItem>
+                  {uniqueCategories.map(cat => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            
+            {uniqueBouquets.length > 0 && (
+              <Select 
+                value={filterBouquet || "all"} 
+                onValueChange={(v) => setFilterBouquet(v === "all" ? null : v)}
+              >
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Bouquet" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Svi bouqueti</SelectItem>
+                  {uniqueBouquets.map(bq => (
+                    <SelectItem key={bq} value={bq}>{bq}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            
+            {(filterCategory || filterBouquet) && (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => {
+                  setFilterCategory(null);
+                  setFilterBouquet(null);
+                }}
+              >
+                Očisti filtere
+              </Button>
+            )}
           </div>
 
           {/* Stream Cards */}
