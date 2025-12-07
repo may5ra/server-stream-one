@@ -1458,7 +1458,16 @@ app.get('/proxy/*', async (req, res) => {
       clearTimeout(timeout);
       
       // Handle 404 by clearing cache and retrying with fresh session
+      // BUT: Don't clear cache for non-critical files like subtitles (.webvtt, .srt, .vtt)
       if (response.status === 404) {
+        const isSubtitle = filePath.endsWith('.webvtt') || filePath.endsWith('.vtt') || filePath.endsWith('.srt');
+        
+        if (isSubtitle) {
+          // Subtitles are non-critical - just return 404 without clearing cache
+          console.log(`[Proxy] Subtitle 404 (ignoring, not clearing cache): ${currentUrl}`);
+          return res.status(404).send('');
+        }
+        
         // Check if we used a cached URL - if so, clear cache and retry
         const hadCache = global.streamBaseUrlCache.has(cacheKey) || global.streamBaseUrlCache.has(masterCacheKey);
         if (hadCache) {
