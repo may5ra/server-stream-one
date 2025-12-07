@@ -47,7 +47,13 @@ Deno.serve(async (req) => {
     return new Response("Account expired", { status: 403, headers: corsHeaders });
   }
 
-  // Get server settings
+  // Get server settings - check both server_domain and server_ip for compatibility
+  const { data: serverDomainSetting } = await supabase
+    .from("panel_settings")
+    .select("value")
+    .eq("key", "server_domain")
+    .single();
+  
   const { data: serverIpSetting } = await supabase
     .from("panel_settings")
     .select("value")
@@ -60,7 +66,8 @@ Deno.serve(async (req) => {
     .eq("key", "http_port")
     .single();
 
-  const serverUrl = serverIpSetting?.value || url.hostname;
+  // Priority: server_domain > server_ip > request hostname
+  const serverUrl = serverDomainSetting?.value || serverIpSetting?.value || url.hostname;
   const httpPort = httpPortSetting?.value || "80";
   
   // Get all live streams
