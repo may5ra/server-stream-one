@@ -1504,7 +1504,7 @@ app.get('/proxy/*', async (req, res) => {
             
             // Now retry the request with fresh URL (no cache)
             try {
-              const freshUrl = streamData.input_url.replace(/\/$/, '') + '/' + getDefaultFile(streamData.input_url);
+              const freshUrl = stream.input_url.replace(/\/$/, '') + '/' + getDefaultFile(stream.input_url);
               console.log(`[Proxy] Retrying manifest with fresh URL: ${freshUrl}`);
               
               const retryResponse = await fetch(freshUrl, {
