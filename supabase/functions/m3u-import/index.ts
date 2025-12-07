@@ -70,8 +70,31 @@ function detectInputType(url: string): string {
   if (lowerUrl.includes('rtsp://')) return 'rtsp';
   if (lowerUrl.includes('srt://')) return 'srt';
   if (lowerUrl.includes('udp://') || lowerUrl.includes('@')) return 'udp';
+  if (lowerUrl.includes('.mpd') || lowerUrl.includes('/dash')) return 'mpd';
   if (lowerUrl.includes('.m3u8') || lowerUrl.includes('/hls/')) return 'hls';
   return 'hls'; // Default to HLS for HTTP streams
+}
+
+// Convert A1 streams to HLS-TS format for better compatibility
+function convertA1ToHlsTs(url: string): string {
+  // Check if this is an A1 stream (A1_SI, A1_CZ, A1_HR, A1_BG, etc.)
+  if (url.includes('/__c/A1_') || url.includes('/__c/a1_')) {
+    // Convert dash-default to hls-ts-avc for better player compatibility
+    if (url.includes('/dash-default/') || url.includes('/dash/')) {
+      const converted = url
+        .replace('/dash-default/', '/hls-ts-avc/')
+        .replace('/dash/', '/hls-ts-avc/')
+        .replace('.mpd', '.m3u8')
+        .replace('/manifest.m3u8', '/master.m3u8');
+      console.log(`[A1 Convert] ${url} -> ${converted}`);
+      return converted;
+    }
+    // Also ensure manifest uses correct extension
+    if (url.endsWith('.mpd')) {
+      return url.replace('.mpd', '.m3u8');
+    }
+  }
+  return url;
 }
 
 serve(async (req) => {
@@ -131,10 +154,14 @@ serve(async (req) => {
           .or(`name.eq.${entry.name},input_url.eq.${entry.url}`)
           .maybeSingle();
 
+        // Convert A1 streams to HLS-TS format automatically
+        const processedUrl = convertA1ToHlsTs(entry.url);
+        const inputType = detectInputType(processedUrl);
+        
         const streamData = {
           name: entry.name,
-          input_type: detectInputType(entry.url),
-          input_url: entry.url,
+          input_type: inputType,
+          input_url: processedUrl,
           category: entry.group_title || default_category || null,
           stream_icon: entry.tvg_logo || null,
           epg_channel_id: entry.tvg_id || null,
