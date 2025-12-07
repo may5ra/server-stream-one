@@ -8,10 +8,54 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-// Database connection
+// Database connection with connection pooling optimization
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
+
+// ==================== PERFORMANCE CACHE ====================
+// In-memory cache for fast stream/user lookups (reduces DB queries from 5 to 0 for cached requests)
+const streamCache = new Map(); // name -> {input_url, cachedAt}
+const userCache = new Map(); // username -> {user, cachedAt}
+const CACHE_TTL = 60000; // 60 seconds cache
+
+function getCachedStream(name) {
+  const cached = streamCache.get(name);
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedStream(name, data) {
+  streamCache.set(name, { data, cachedAt: Date.now() });
+}
+
+function getCachedUser(username) {
+  const cached = userCache.get(username);
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedUser(username, data) {
+  userCache.set(username, { data, cachedAt: Date.now() });
+}
+
+// Clear expired cache entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of streamCache) {
+    if (now - value.cachedAt > CACHE_TTL) streamCache.delete(key);
+  }
+  for (const [key, value] of userCache) {
+    if (now - value.cachedAt > CACHE_TTL) userCache.delete(key);
+  }
+}, 300000);
 
 // Middleware
 app.use(cors());
@@ -717,8 +761,13 @@ function getSessionId(req) {
   return `${ip}_${ua.substring(0, 50)}`.replace(/[^a-zA-Z0-9_]/g, '');
 }
 
-// ==================== UNIFIED STREAM PROXY ====================
+// ==================== UNIFIED STREAM PROXY (OPTIMIZED) ====================
 // Handles both authenticated (/proxy/user/pass/stream/file) and legacy (/proxy/stream/file)
+// OPTIMIZATIONS:
+// - In-memory cache for streams and users (reduces DB queries from 5 to 0)
+// - Async DB updates (don't block response)
+// - Connection reuse
+// - Minimal logging for .ts segments
 
 app.get('/proxy/*', async (req, res) => {
   try {
@@ -730,51 +779,63 @@ app.get('/proxy/*', async (req, res) => {
     let streamName = null;
     let filePath = 'index.m3u8';
     let isAuthenticated = false;
+    let user = null;
     
-    // Try to detect format by checking if first part is a valid username
+    // Fast path: Check if looks like authenticated format (3+ parts)
     if (parts.length >= 3) {
       const potentialUsername = parts[0];
       const potentialPassword = parts[1];
       
-      // Check if this is an authenticated request
-      const userCheck = await pool.query(
-        'SELECT id FROM streaming_users WHERE username = $1',
-        [potentialUsername]
-      );
+      // Try cache first for user lookup
+      let cachedUser = getCachedUser(potentialUsername);
       
-      if (userCheck.rows.length > 0) {
-        // Authenticated format: /proxy/username/password/streamName/file
-        isAuthenticated = true;
-        username = potentialUsername;
-        password = potentialPassword;
-        streamName = parts[2];
-        filePath = parts.slice(3).join('/') || 'index.m3u8';
+      if (cachedUser) {
+        // Fast path: user in cache
+        if (cachedUser.password === potentialPassword) {
+          isAuthenticated = true;
+          username = potentialUsername;
+          password = potentialPassword;
+          user = cachedUser;
+          streamName = parts[2];
+          filePath = parts.slice(3).join('/') || 'index.m3u8';
+        }
+      } else {
+        // Slow path: check DB
+        const userResult = await pool.query(
+          'SELECT * FROM streaming_users WHERE username = $1',
+          [potentialUsername]
+        );
+        
+        if (userResult.rows.length > 0) {
+          const dbUser = userResult.rows[0];
+          setCachedUser(potentialUsername, dbUser);
+          
+          if (dbUser.password === potentialPassword) {
+            isAuthenticated = true;
+            username = potentialUsername;
+            password = potentialPassword;
+            user = dbUser;
+            streamName = parts[2];
+            filePath = parts.slice(3).join('/') || 'index.m3u8';
+          }
+        }
       }
     }
     
     // If not authenticated format, treat as legacy
     if (!isAuthenticated) {
-      // Legacy format: /proxy/streamName/file
       streamName = parts[0];
       filePath = parts.slice(1).join('/') || 'index.m3u8';
     }
     
-    console.log(`[Proxy] ${isAuthenticated ? 'Auth' : 'Legacy'}: stream=${streamName}, file=${filePath}`);
+    // Only log main playlist requests, not every .ts segment
+    const isSegment = filePath.endsWith('.ts');
+    if (!isSegment) {
+      console.log(`[Proxy] ${isAuthenticated ? 'Auth' : 'Legacy'}: stream=${streamName}, file=${filePath}`);
+    }
     
     // Handle authenticated requests with connection limiting
-    if (isAuthenticated) {
-      const userResult = await pool.query(
-        'SELECT * FROM streaming_users WHERE username = $1 AND password = $2',
-        [username, password]
-      );
-      
-      if (userResult.rows.length === 0) {
-        console.log(`[Proxy] Invalid credentials for: ${username}`);
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-      
-      const user = userResult.rows[0];
-      
+    if (isAuthenticated && user) {
       // Check expiry
       if (new Date(user.expiry_date) < new Date()) {
         console.log(`[Proxy] Account expired for: ${username}`);
@@ -794,7 +855,7 @@ app.get('/proxy/*', async (req, res) => {
       const isExistingSession = userSessions.has(sessionId);
       
       // Only check connection limit for main playlist requests and new sessions
-      if (filePath === 'index.m3u8' && !isExistingSession) {
+      if ((filePath === 'index.m3u8' || filePath === 'index.ts') && !isExistingSession) {
         if (userSessions.size >= maxConnections) {
           console.log(`[Proxy] Connection limit reached for ${username}: ${userSessions.size}/${maxConnections}`);
           return res.status(429).json({ 
@@ -805,42 +866,49 @@ app.get('/proxy/*', async (req, res) => {
         }
       }
       
-      // Update session tracking
+      // Update session tracking (sync - fast)
       userSessions.set(sessionId, {
         streamName,
         lastSeen: Date.now()
       });
       
-      // Update database and log activity
-      await pool.query(
-        'UPDATE streaming_users SET connections = $1, last_active = NOW(), status = $2, updated_at = NOW() WHERE id = $3',
-        [userSessions.size, 'online', user.id]
+      // ASYNC: Update database without blocking response
+      if (!isSegment) {
+        pool.query(
+          'UPDATE streaming_users SET connections = $1, last_active = NOW(), status = $2, updated_at = NOW() WHERE id = $3',
+          [userSessions.size, 'online', user.id]
+        ).catch(err => console.error('[Proxy] DB update error:', err));
+        
+        // Log stream start activity (async)
+        if (!isExistingSession) {
+          logActivity('stream_start', { 
+            username, 
+            streamName: decodeURIComponent(streamName),
+            connections: userSessions.size 
+          }, req.ip || req.connection.remoteAddress);
+        }
+      }
+    }
+    
+    // Look up stream - try cache first
+    const decodedStreamName = decodeURIComponent(streamName);
+    let stream = getCachedStream(decodedStreamName);
+    
+    if (!stream) {
+      const streamResult = await pool.query(
+        'SELECT input_url, name FROM streams WHERE name = $1',
+        [decodedStreamName]
       );
       
-      // Log stream start activity
-      if (!isExistingSession) {
-        logActivity('stream_start', { 
-          username, 
-          streamName: decodeURIComponent(streamName),
-          connections: userSessions.size 
-        }, req.ip || req.connection.remoteAddress);
+      if (streamResult.rows.length === 0) {
+        console.log(`[Proxy] Stream not found: ${streamName}`);
+        return res.status(404).json({ error: 'Stream not found', streamName });
       }
       
-      console.log(`[Proxy] User ${username}: ${userSessions.size}/${maxConnections} connections`);
+      stream = streamResult.rows[0];
+      setCachedStream(decodedStreamName, stream);
     }
     
-    // Look up stream
-    const streamResult = await pool.query(
-      'SELECT input_url, name FROM streams WHERE name = $1',
-      [decodeURIComponent(streamName)]
-    );
-    
-    if (streamResult.rows.length === 0) {
-      console.log(`[Proxy] Stream not found: ${streamName}`);
-      return res.status(404).json({ error: 'Stream not found', streamName });
-    }
-    
-    const stream = streamResult.rows[0];
     if (!stream.input_url) {
       return res.status(400).json({ error: 'Stream has no source URL' });
     }
@@ -849,52 +917,55 @@ app.get('/proxy/*', async (req, res) => {
     let targetUrl;
     const inputUrl = stream.input_url.trim();
     
-    // Special handling for stream.ts - use the direct source URL
-    if (filePath === 'stream.ts') {
-      // For TS format, directly use the source URL (typically an HLS source)
-      // Some players prefer TS segments, so we redirect to the main HLS playlist
-      // which the player will then fetch TS segments from
-      if (inputUrl.endsWith('.m3u8')) {
-        targetUrl = inputUrl;
-      } else if (inputUrl.endsWith('/')) {
-        targetUrl = `${inputUrl}index.m3u8`;
-      } else {
-        targetUrl = `${inputUrl}/index.m3u8`;
-      }
-      console.log(`[Proxy] TS mode - using HLS source: ${targetUrl}`);
-    } else if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${filePath}`;
+    // Handle index.ts - treat same as index.m3u8 (HLS)
+    const effectiveFilePath = filePath === 'index.ts' ? 'index.m3u8' : filePath;
+    
+    if (inputUrl.endsWith('/')) {
+      targetUrl = `${inputUrl}${effectiveFilePath}`;
     } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${filePath}`;
+      targetUrl = `${baseUrl}${effectiveFilePath}`;
     } else {
-      targetUrl = `${inputUrl}/${filePath}`;
+      targetUrl = `${inputUrl}/${effectiveFilePath}`;
     }
     
-    console.log(`[Proxy] Fetching: ${targetUrl}`);
+    // Fetch with timeout for faster failure
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
     
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': '*/*',
+    try {
+      const response = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': '*/*',
+        },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      
+      if (!response.ok) {
+        console.error(`[Proxy] Upstream error: ${response.status}`);
+        return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
       }
-    });
-    
-    if (!response.ok) {
-      console.error(`[Proxy] Upstream error: ${response.status}`);
-      return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+      
+      let contentType = response.headers.get('content-type') || 'application/octet-stream';
+      if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') contentType = 'application/vnd.apple.mpegurl';
+      else if (effectiveFilePath.endsWith('.ts')) contentType = 'video/mp2t';
+      
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', effectiveFilePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+      
+      const body = await response.arrayBuffer();
+      res.send(Buffer.from(body));
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      if (fetchError.name === 'AbortError') {
+        console.error(`[Proxy] Timeout fetching: ${targetUrl}`);
+        return res.status(504).json({ error: 'Upstream timeout' });
+      }
+      throw fetchError;
     }
-    
-    let contentType = response.headers.get('content-type') || 'application/octet-stream';
-    if (filePath.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
-    else if (filePath.endsWith('.ts')) contentType = 'video/mp2t';
-    
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
-    
-    const body = await response.arrayBuffer();
-    res.send(Buffer.from(body));
     
   } catch (error) {
     console.error('[Proxy] Error:', error);
