@@ -1326,9 +1326,10 @@ app.get('/proxy/*', async (req, res) => {
       return null;
     };
     
-    // Fetch with timeout for faster failure
+    // Fetch with timeout for faster failure - reduced for quicker startup
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    const timeoutMs = isSegment ? 8000 : 5000; // 5s for manifests, 8s for segments
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     
     try {
       let currentUrl = targetUrl;
