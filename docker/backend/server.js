@@ -1262,7 +1262,7 @@ app.get('/proxy/*', async (req, res) => {
       }
       if (foundCache) {
         targetUrl = foundCache.baseUrl + filePath;
-        // Silent for segments - faster
+        console.log(`[Proxy] Segment using cache (${foundKey}): ${targetUrl}`);
       } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
         targetUrl = masterCachedBase.baseUrl + filePath;
       } else {
