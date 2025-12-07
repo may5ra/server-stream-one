@@ -1124,7 +1124,7 @@ app.get('/proxy/*', async (req, res) => {
     }
     
     // Only log main playlist requests, not every .ts segment
-    const isSegment = filePath.endsWith('.ts');
+    const isSegment = filePath.endsWith('.ts') || filePath.endsWith('.m4s');
     if (!isSegment) {
       console.log(`[Proxy] ${isAuthenticated ? 'Auth' : 'Legacy'}: stream=${streamName}, file=${filePath}`);
     }
@@ -1242,7 +1242,6 @@ app.get('/proxy/*', async (req, res) => {
     const masterCachedBase = global.streamBaseUrlCache.get(masterCacheKey);
     
     // For .ts segments without path prefix, try to find any cached path that matches
-    const isSegment = filePath.endsWith('.ts') || filePath.endsWith('.m4s');
     
     if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts') {
       // Use cached base URL for this specific path
