@@ -1366,7 +1366,45 @@ app.get('/proxy/*', async (req, res) => {
       res.setHeader('Cache-Control', effectiveFilePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
       
       const body = await response.arrayBuffer();
-      res.send(Buffer.from(body));
+      let bodyBuffer = Buffer.from(body);
+      
+      // For m3u8 playlists, rewrite relative URLs to absolute URLs
+      if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') {
+        let m3u8Content = bodyBuffer.toString('utf8');
+        const baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
+        
+        // Rewrite relative URLs to absolute URLs
+        const lines = m3u8Content.split('\n');
+        const rewrittenLines = lines.map(line => {
+          const trimmedLine = line.trim();
+          // Skip comments and empty lines, but not URI= attributes
+          if (trimmedLine.startsWith('#')) {
+            // Handle URI="..." in tags like EXT-X-MEDIA and EXT-X-I-FRAME-STREAM-INF
+            if (trimmedLine.includes('URI="')) {
+              return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+                if (uri.startsWith('http://') || uri.startsWith('https://')) {
+                  return match; // Already absolute
+                }
+                return `URI="${baseUrl}${uri}"`;
+              });
+            }
+            return line;
+          }
+          if (!trimmedLine) return line;
+          
+          // If it's a relative URL (not starting with http), make it absolute
+          if (!trimmedLine.startsWith('http://') && !trimmedLine.startsWith('https://')) {
+            return baseUrl + trimmedLine;
+          }
+          return line;
+        });
+        
+        m3u8Content = rewrittenLines.join('\n');
+        console.log(`[Proxy] Rewrote m3u8 URLs with base: ${baseUrl}`);
+        bodyBuffer = Buffer.from(m3u8Content, 'utf8');
+      }
+      
+      res.send(bodyBuffer);
     } catch (fetchError) {
       clearTimeout(timeout);
       if (fetchError.name === 'AbortError') {
