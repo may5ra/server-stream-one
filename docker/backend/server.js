@@ -771,13 +771,27 @@ app.get('/get.php', async (req, res) => {
       const groupTitle = stream.bouquet || stream.category || 'Uncategorized';
       
       playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${groupTitle}",${stream.name}\n`;
-      // Format: /proxy/username/password/streamName/index.m3u8 or /index.ts
-      if (useTs) {
-        // TS format - use index.ts (works, stream.ts doesn't work)
-        playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}/index.ts\n`;
+      
+      const encodedName = encodeURIComponent(stream.name);
+      
+      // Generate URL based on input_type
+      if (stream.input_type === 'mpd') {
+        // MPD/DASH streams - use manifest.mpd
+        playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/manifest.mpd\n`;
+      } else if (stream.input_type === 'hls') {
+        // HLS streams
+        if (useTs) {
+          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.ts\n`;
+        } else {
+          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
+        }
       } else {
-        // HLS format (default) - index.m3u8
-        playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}/index.m3u8\n`;
+        // RTMP/SRT/other streams - use standard format
+        if (useTs) {
+          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.ts\n`;
+        } else {
+          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
+        }
       }
     }
     
@@ -1132,10 +1146,35 @@ app.get('/proxy/*', async (req, res) => {
     let targetUrl;
     const inputUrl = stream.input_url.trim();
     
-    // Handle index.ts - treat same as index.m3u8 (HLS)
-    const effectiveFilePath = filePath === 'index.ts' ? 'index.m3u8' : filePath;
+    // Handle different stream types
+    let effectiveFilePath = filePath;
     
-    if (inputUrl.endsWith('/')) {
+    // For manifest.mpd requests, use the MPD URL directly
+    if (filePath === 'manifest.mpd') {
+      // If input_url ends with .mpd, use it directly
+      if (inputUrl.endsWith('.mpd')) {
+        targetUrl = inputUrl;
+      } else if (inputUrl.endsWith('/')) {
+        targetUrl = `${inputUrl}manifest.mpd`;
+      } else {
+        targetUrl = `${inputUrl}/manifest.mpd`;
+      }
+    } else if (filePath === 'index.ts') {
+      // Handle index.ts - treat same as index.m3u8 (HLS)
+      effectiveFilePath = 'index.m3u8';
+      if (inputUrl.endsWith('/')) {
+        targetUrl = `${inputUrl}${effectiveFilePath}`;
+      } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
+        const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+        targetUrl = `${baseUrl}${effectiveFilePath}`;
+      } else {
+        targetUrl = `${inputUrl}/${effectiveFilePath}`;
+      }
+    } else if (inputUrl.endsWith('.mpd')) {
+      // For MPD streams requesting segments or other files
+      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+      targetUrl = `${baseUrl}${effectiveFilePath}`;
+    } else if (inputUrl.endsWith('/')) {
       targetUrl = `${inputUrl}${effectiveFilePath}`;
     } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
@@ -1166,6 +1205,8 @@ app.get('/proxy/*', async (req, res) => {
       let contentType = response.headers.get('content-type') || 'application/octet-stream';
       if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') contentType = 'application/vnd.apple.mpegurl';
       else if (effectiveFilePath.endsWith('.ts')) contentType = 'video/mp2t';
+      else if (effectiveFilePath.endsWith('.mpd') || filePath === 'manifest.mpd') contentType = 'application/dash+xml';
+      else if (effectiveFilePath.endsWith('.m4s')) contentType = 'video/iso.segment';
       
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', contentType);
