@@ -512,10 +512,10 @@ app.get('/get.php', async (req, res) => {
     
     for (const stream of streams.rows) {
       playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${stream.category || ''}",${stream.name}\n`;
-      // Format: /proxy/username/password/streamName/index.m3u8 or /stream.ts
+      // Format: /proxy/username/password/streamName/index.m3u8 or /index.ts
       if (useTs) {
-        // TS format for direct transport stream access
-        playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}/stream.ts\n`;
+        // TS format - use index.ts (works, stream.ts doesn't work)
+        playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}/index.ts\n`;
       } else {
         // HLS format (default) - index.m3u8
         playlist += `${baseUrl}/proxy/${username}/${password}/${encodeURIComponent(stream.name)}/index.m3u8\n`;
