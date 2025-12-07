@@ -1460,22 +1460,35 @@ app.get('/proxy/*', async (req, res) => {
       
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', effectiveFilePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache');
+      res.setHeader('Cache-Control', effectiveFilePath.endsWith('.ts') || effectiveFilePath.endsWith('.m4s') ? 'max-age=86400' : 'no-cache');
       
+      // For segments (.ts, .m4s), use STREAMING - don't buffer entire response!
+      const isMediaSegment = effectiveFilePath.endsWith('.ts') || effectiveFilePath.endsWith('.m4s');
+      
+      if (isMediaSegment) {
+        // Stream response directly to client - much faster for video segments!
+        const contentLength = response.headers.get('content-length');
+        if (contentLength) {
+          res.setHeader('Content-Length', contentLength);
+        }
+        
+        // Use Node.js streams for efficient piping
+        const { Readable } = require('stream');
+        const readable = Readable.fromWeb(response.body);
+        readable.pipe(res);
+        return; // Important: return early, piping handles the response
+      }
+      
+      // For manifests (.m3u8, .mpd), we need to buffer and rewrite URLs
       const body = await response.arrayBuffer();
       let bodyBuffer = Buffer.from(body);
       
       // For m3u8 playlists, rewrite URLs to go through our proxy
-      // This ensures segments are fetched through us (source may block direct requests)
       if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') {
         let m3u8Content = bodyBuffer.toString('utf8');
         
         // Get the proxy base URL for this stream
         const proxyBaseUrl = `/proxy/${encodeURIComponent(streamName)}/`;
-        
-        // Cache the resolved base URL for building segment URLs later
-        const cachedBase = global.streamBaseUrlCache.get(decodedStreamName);
-        const sourceBaseUrl = cachedBase ? cachedBase.baseUrl : (targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1));
         
         // Rewrite all URLs to go through our proxy
         const lines = m3u8Content.split('\n');
@@ -1486,7 +1499,6 @@ app.get('/proxy/*', async (req, res) => {
           if (trimmedLine.startsWith('#') && trimmedLine.includes('URI="')) {
             return line.replace(/URI="([^"]+)"/g, (match, uri) => {
               if (uri.startsWith('http://') || uri.startsWith('https://')) {
-                // Absolute URL - extract path and route through proxy
                 try {
                   const urlObj = new URL(uri);
                   return `URI="${proxyBaseUrl}${urlObj.pathname.substring(1)}"`;
@@ -1501,7 +1513,6 @@ app.get('/proxy/*', async (req, res) => {
           
           // Rewrite segment/manifest URLs to go through proxy
           if (trimmedLine.startsWith('http://') || trimmedLine.startsWith('https://')) {
-            // Absolute URL - extract path and route through proxy
             try {
               const urlObj = new URL(trimmedLine);
               return proxyBaseUrl + urlObj.pathname.substring(1);
@@ -1509,7 +1520,6 @@ app.get('/proxy/*', async (req, res) => {
               return line;
             }
           }
-          // Relative URL - just prepend proxy base
           return proxyBaseUrl + trimmedLine;
         });
         
