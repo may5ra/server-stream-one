@@ -2,16 +2,15 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
-// Backend sync config - reads from panel_settings in Supabase
-const getBackendUrl = async (): Promise<string | null> => {
+// Backend sync config - reads from localStorage (same as Settings page)
+const getBackendUrl = (): string | null => {
   try {
-    const { data } = await supabase
-      .from("panel_settings")
-      .select("key, value")
-      .in("key", ["server_ip", "http_port"]);
+    const savedSettings = localStorage.getItem('streampanel_settings');
+    if (!savedSettings) return null;
     
-    const serverIp = data?.find(s => s.key === "server_ip")?.value;
-    const httpPort = data?.find(s => s.key === "http_port")?.value || "3001";
+    const settings = JSON.parse(savedSettings);
+    const serverIp = settings.streamServerIp;
+    const httpPort = settings.streamHttpPort || "3001";
     
     if (!serverIp) return null;
     return `http://${serverIp}:${httpPort}`;
@@ -46,7 +45,7 @@ export interface Stream {
 
 // Sync stream to Docker backend
 const syncStreamToBackend = async (stream: Stream) => {
-  const backendUrl = await getBackendUrl();
+  const backendUrl = getBackendUrl();
   if (!backendUrl) return;
   
   try {
@@ -63,7 +62,7 @@ const syncStreamToBackend = async (stream: Stream) => {
 
 // Delete stream from Docker backend
 const deleteStreamFromBackend = async (id: string) => {
-  const backendUrl = await getBackendUrl();
+  const backendUrl = getBackendUrl();
   if (!backendUrl) return;
   
   try {
@@ -78,7 +77,7 @@ const deleteStreamFromBackend = async (id: string) => {
 
 // Sync all streams to Docker backend
 const syncAllStreamsToBackend = async (streams: Stream[]) => {
-  const backendUrl = await getBackendUrl();
+  const backendUrl = getBackendUrl();
   if (!backendUrl) return;
   
   try {
@@ -208,9 +207,9 @@ export const useStreams = () => {
   };
 
   const syncAllStreams = async () => {
-    const backendUrl = await getBackendUrl();
+    const backendUrl = getBackendUrl();
     if (!backendUrl) {
-      toast({ title: "Greška", description: "Backend URL nije postavljen u Settings", variant: "destructive" });
+      toast({ title: "Greška", description: "Postavi Server IP i HTTP Port u Settings → Streaming Server", variant: "destructive" });
       return false;
     }
     
@@ -223,11 +222,11 @@ export const useStreams = () => {
       
       if (!response.ok) throw new Error('Sync failed');
       
-      toast({ title: "Uspješno", description: `Sinkronizirano ${streams.length} streamova` });
+      toast({ title: "Uspješno", description: `Sinkronizirano ${streams.length} streamova na ${backendUrl}` });
       return true;
     } catch (err) {
       console.error(`[Sync] Failed to sync all streams`, err);
-      toast({ title: "Greška", description: "Sinkronizacija nije uspjela - provjeri backend", variant: "destructive" });
+      toast({ title: "Greška", description: `Sinkronizacija na ${backendUrl} nije uspjela - provjeri da je backend pokrenut`, variant: "destructive" });
       return false;
     }
   };
