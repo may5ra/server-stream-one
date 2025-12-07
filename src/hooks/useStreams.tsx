@@ -207,6 +207,31 @@ export const useStreams = () => {
     await updateStream(id, { status: newStatus, viewers: newViewers });
   };
 
+  const syncAllStreams = async () => {
+    const backendUrl = await getBackendUrl();
+    if (!backendUrl) {
+      toast({ title: "Greška", description: "Backend URL nije postavljen u Settings", variant: "destructive" });
+      return false;
+    }
+    
+    try {
+      const response = await fetch(`${backendUrl}/api/streams/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streams }),
+      });
+      
+      if (!response.ok) throw new Error('Sync failed');
+      
+      toast({ title: "Uspješno", description: `Sinkronizirano ${streams.length} streamova` });
+      return true;
+    } catch (err) {
+      console.error(`[Sync] Failed to sync all streams`, err);
+      toast({ title: "Greška", description: "Sinkronizacija nije uspjela - provjeri backend", variant: "destructive" });
+      return false;
+    }
+  };
+
   return {
     streams,
     loading,
@@ -215,5 +240,6 @@ export const useStreams = () => {
     deleteStream,
     toggleStream,
     refetch: fetchStreams,
+    syncAllStreams,
   };
 };
