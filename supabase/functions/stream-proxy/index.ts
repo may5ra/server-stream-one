@@ -73,13 +73,17 @@ function getContentType(filePath: string, streamType: 'hls' | 'dash' | 'unknown'
   return 'application/octet-stream';
 }
 
+// Check if input URL is already a manifest file
+function isManifestUrl(inputUrl: string): boolean {
+  const lowerUrl = inputUrl.toLowerCase();
+  return lowerUrl.endsWith('.mpd') || lowerUrl.endsWith('.m3u8');
+}
+
 // Get default file for stream type
 function getDefaultFile(inputUrl: string): string {
   const lowerUrl = inputUrl.toLowerCase();
-  if (lowerUrl.endsWith('.mpd')) {
-    return '';
-  }
-  if (lowerUrl.endsWith('.m3u8')) {
+  // If input_url already points to a manifest, we don't need a default file
+  if (lowerUrl.endsWith('.mpd') || lowerUrl.endsWith('.m3u8')) {
     return '';
   }
   if (lowerUrl.includes('.mpd') || lowerUrl.includes('dash')) {
