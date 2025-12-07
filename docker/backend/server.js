@@ -50,6 +50,13 @@ app.post('/api/auth/login', async (req, res) => {
     }
     
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+    
+    // Log login activity
+    await pool.query(
+      'INSERT INTO activity_logs (action, details, ip_address) VALUES ($1, $2, $3)',
+      ['login', JSON.stringify({ email: user.email }), req.ip || req.connection.remoteAddress]
+    ).catch(() => {});
+    
     res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
   } catch (error) {
     console.error('Login error:', error);
@@ -151,6 +158,12 @@ app.post('/api/streaming-users', authenticateToken, async (req, res) => {
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [username, password, max_connections, expiry_date, reseller_id]
     );
+    
+    // Log activity
+    await pool.query(
+      'INSERT INTO activity_logs (action, details, ip_address) VALUES ($1, $2, $3)',
+      ['user_created', JSON.stringify({ username }), req.ip || req.connection.remoteAddress]
+    ).catch(() => {});
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -655,6 +668,19 @@ app.put('/api/settings', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== ACTIVITY LOGGING ====================
+
+async function logActivity(action, details = {}, ipAddress = null) {
+  try {
+    await pool.query(
+      'INSERT INTO activity_logs (action, details, ip_address) VALUES ($1, $2, $3)',
+      [action, JSON.stringify(details), ipAddress]
+    );
+  } catch (err) {
+    console.error('[Activity] Log error:', err.message);
+  }
+}
+
 // ==================== CONNECTION TRACKING ====================
 // Track active connections per user with session IDs
 const activeConnections = new Map(); // userId -> Map<sessionId, { streamName, lastSeen }>
@@ -785,11 +811,20 @@ app.get('/proxy/*', async (req, res) => {
         lastSeen: Date.now()
       });
       
-      // Update database
+      // Update database and log activity
       await pool.query(
         'UPDATE streaming_users SET connections = $1, last_active = NOW(), status = $2, updated_at = NOW() WHERE id = $3',
         [userSessions.size, 'online', user.id]
       );
+      
+      // Log stream start activity
+      if (!isExistingSession) {
+        logActivity('stream_start', { 
+          username, 
+          streamName: decodeURIComponent(streamName),
+          connections: userSessions.size 
+        }, req.ip || req.connection.remoteAddress);
+      }
       
       console.log(`[Proxy] User ${username}: ${userSessions.size}/${maxConnections} connections`);
     }
@@ -814,7 +849,20 @@ app.get('/proxy/*', async (req, res) => {
     let targetUrl;
     const inputUrl = stream.input_url.trim();
     
-    if (inputUrl.endsWith('/')) {
+    // Special handling for stream.ts - use the direct source URL
+    if (filePath === 'stream.ts') {
+      // For TS format, directly use the source URL (typically an HLS source)
+      // Some players prefer TS segments, so we redirect to the main HLS playlist
+      // which the player will then fetch TS segments from
+      if (inputUrl.endsWith('.m3u8')) {
+        targetUrl = inputUrl;
+      } else if (inputUrl.endsWith('/')) {
+        targetUrl = `${inputUrl}index.m3u8`;
+      } else {
+        targetUrl = `${inputUrl}/index.m3u8`;
+      }
+      console.log(`[Proxy] TS mode - using HLS source: ${targetUrl}`);
+    } else if (inputUrl.endsWith('/')) {
       targetUrl = `${inputUrl}${filePath}`;
     } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
@@ -850,6 +898,19 @@ app.get('/proxy/*', async (req, res) => {
     
   } catch (error) {
     console.error('[Proxy] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== ACTIVITY LOGS API ====================
+
+app.get('/api/activity-logs', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 100'
+    );
+    res.json(result.rows);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

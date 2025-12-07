@@ -50,6 +50,17 @@ interface ActiveConnection {
   expiryDate: string;
   isExpired: boolean;
   isAtLimit: boolean;
+  currentStream?: string;
+}
+
+interface BackendConnection {
+  userId: string;
+  sessionCount: number;
+  sessions: Array<{
+    sessionId: string;
+    streamName: string;
+    lastSeen: string;
+  }>;
 }
 
 const Connections = () => {
@@ -68,6 +79,7 @@ const Connections = () => {
 
   const fetchConnections = async () => {
     try {
+      // Fetch from Supabase
       const { data, error } = await supabase
         .from("streaming_users")
         .select("*")
@@ -75,22 +87,42 @@ const Connections = () => {
 
       if (error) throw error;
 
+      // Try to get live connections from backend
+      let backendConnections: BackendConnection[] = [];
+      const dockerUrl = getDockerUrl();
+      if (dockerUrl) {
+        try {
+          const response = await fetch(`${dockerUrl}/api/connections/active`);
+          if (response.ok) {
+            const result = await response.json();
+            backendConnections = result.connections || [];
+          }
+        } catch (e) {
+          console.log("Could not fetch live connections from backend");
+        }
+      }
+
       const now = new Date();
       const mapped: ActiveConnection[] = (data || []).map((user) => {
         const expiryDate = new Date(user.expiry_date);
         const isExpired = expiryDate < now;
         const isAtLimit = (user.connections || 0) >= (user.max_connections || 1);
+        
+        // Find live session info from backend
+        const liveSession = backendConnections.find(c => c.userId === user.id);
+        const currentStream = liveSession?.sessions?.[0]?.streamName;
 
         return {
           userId: user.id,
           username: user.username,
-          connections: user.connections || 0,
+          connections: liveSession?.sessionCount || user.connections || 0,
           maxConnections: user.max_connections || 1,
-          status: user.status,
+          status: (liveSession?.sessionCount || 0) > 0 ? "online" : user.status,
           lastActive: user.last_active,
           expiryDate: user.expiry_date,
           isExpired,
           isAtLimit,
+          currentStream,
         };
       });
 
@@ -278,6 +310,7 @@ const Connections = () => {
                   <TableRow>
                     <TableHead>Status</TableHead>
                     <TableHead>Korisnik</TableHead>
+                    <TableHead>Gleda</TableHead>
                     <TableHead>Konekcije</TableHead>
                     <TableHead>Zadnja Aktivnost</TableHead>
                     <TableHead>Istek</TableHead>
@@ -304,6 +337,15 @@ const Connections = () => {
                         )}
                       </TableCell>
                       <TableCell className="font-medium">{conn.username}</TableCell>
+                      <TableCell>
+                        {conn.currentStream ? (
+                          <span className="text-sm text-primary font-medium">
+                            📺 {decodeURIComponent(conn.currentStream)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">-</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <span className={conn.isAtLimit ? "text-warning font-bold" : ""}>
@@ -354,7 +396,7 @@ const Connections = () => {
                   ))}
                   {filteredConnections.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         Nema pronađenih korisnika
                       </TableCell>
                     </TableRow>
