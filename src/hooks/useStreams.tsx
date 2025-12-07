@@ -43,52 +43,45 @@ export interface Stream {
   epg_channel_id: string | null;
 }
 
-// Sync stream to Docker backend
-const syncStreamToBackend = async (stream: Stream) => {
+// Call backend through Edge Function to avoid CORS/mixed-content issues
+const callBackendSync = async (action: string, data: unknown) => {
   const backendUrl = getBackendUrl();
-  if (!backendUrl) return;
+  if (!backendUrl) return null;
   
   try {
-    await fetch(`${backendUrl}/api/streams/sync-one`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(stream),
+    const { data: result, error } = await supabase.functions.invoke('backend-sync', {
+      body: { action, backendUrl, data }
     });
-    console.log(`[Sync] Stream synced: ${stream.name}`);
+    
+    if (error) throw error;
+    return result;
   } catch (err) {
-    console.error(`[Sync] Failed to sync stream: ${stream.name}`, err);
+    console.error(`[Sync] ${action} failed:`, err);
+    return null;
+  }
+};
+
+// Sync stream to Docker backend
+const syncStreamToBackend = async (stream: Stream) => {
+  const result = await callBackendSync('sync-stream', stream);
+  if (result) {
+    console.log(`[Sync] Stream synced: ${stream.name}`);
   }
 };
 
 // Delete stream from Docker backend
 const deleteStreamFromBackend = async (id: string) => {
-  const backendUrl = getBackendUrl();
-  if (!backendUrl) return;
-  
-  try {
-    await fetch(`${backendUrl}/api/streams/sync/${id}`, {
-      method: 'DELETE',
-    });
+  const result = await callBackendSync('delete-stream', { id });
+  if (result) {
     console.log(`[Sync] Stream deleted: ${id}`);
-  } catch (err) {
-    console.error(`[Sync] Failed to delete stream: ${id}`, err);
   }
 };
 
-// Sync all streams to Docker backend
+// Sync all streams to Docker backend (background, no error toast)
 const syncAllStreamsToBackend = async (streams: Stream[]) => {
-  const backendUrl = getBackendUrl();
-  if (!backendUrl) return;
-  
-  try {
-    await fetch(`${backendUrl}/api/streams/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ streams }),
-    });
+  const result = await callBackendSync('sync-streams', streams);
+  if (result) {
     console.log(`[Sync] All streams synced: ${streams.length}`);
-  } catch (err) {
-    console.error(`[Sync] Failed to sync all streams`, err);
   }
 };
 
@@ -108,7 +101,7 @@ export const useStreams = () => {
       toast({ title: "Greška", description: "Nije moguće učitati streamove", variant: "destructive" });
     } else {
       setStreams(data || []);
-      // Auto-sync all streams to backend on fetch
+      // Auto-sync all streams to backend on fetch (background)
       if (data && data.length > 0) {
         syncAllStreamsToBackend(data as Stream[]);
       }
@@ -214,19 +207,26 @@ export const useStreams = () => {
     }
     
     try {
-      const response = await fetch(`${backendUrl}/api/streams/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ streams }),
+      const { data, error } = await supabase.functions.invoke('backend-sync', {
+        body: { 
+          action: 'sync-streams', 
+          backendUrl, 
+          data: streams 
+        }
       });
       
-      if (!response.ok) throw new Error('Sync failed');
+      if (error) throw error;
+      
+      if (data?.error) {
+        throw new Error(data.error);
+      }
       
       toast({ title: "Uspješno", description: `Sinkronizirano ${streams.length} streamova na ${backendUrl}` });
       return true;
     } catch (err) {
       console.error(`[Sync] Failed to sync all streams`, err);
-      toast({ title: "Greška", description: `Sinkronizacija na ${backendUrl} nije uspjela - provjeri da je backend pokrenut`, variant: "destructive" });
+      const errorMsg = err instanceof Error ? err.message : 'Nepoznata greška';
+      toast({ title: "Greška", description: `Sinkronizacija nije uspjela: ${errorMsg}`, variant: "destructive" });
       return false;
     }
   };
