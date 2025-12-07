@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useStreamingUsers, StreamingUser } from "@/hooks/useStreamingUsers";
 import { useSettings } from "@/hooks/useSettings";
@@ -26,6 +27,7 @@ const Users = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<StreamingUser | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [outputFormat, setOutputFormat] = useState<"m3u8" | "ts">("m3u8");
   const { toast } = useToast();
 
   const [newUser, setNewUser] = useState({
@@ -110,12 +112,24 @@ const Users = () => {
     }
   };
 
-  const handleCopyCredentials = (user: StreamingUser) => {
-    navigator.clipboard.writeText(`Username: ${user.username}\nPassword: ${user.password}`);
-    toast({ title: "Copied", description: "Credentials copied to clipboard" });
+  const handleCopyCredentials = async (user: StreamingUser) => {
+    const text = `Username: ${user.username}\nPassword: ${user.password}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "Kopirano", description: "Kredencijali kopirani u clipboard" });
+    } catch (err) {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      toast({ title: "Kopirano", description: "Kredencijali kopirani u clipboard" });
+    }
   };
 
-  const generateM3UPlaylist = (user: StreamingUser) => {
+  const generateM3UPlaylist = (user: StreamingUser, format: "m3u8" | "ts") => {
     const serverUrl = getServerUrl();
     
     let playlist = `#EXTM3U\n`;
@@ -127,32 +141,47 @@ const Users = () => {
       const encodedName = encodeURIComponent(stream.name);
       
       playlist += `#EXTINF:-1 tvg-id="${epgId}" tvg-name="${stream.name}" tvg-logo="${streamIcon}" group-title="${category}",${stream.name}\n`;
-      // Format: /username/password/streamName (for IPTV compatibility)
-      playlist += `${serverUrl}/${user.username}/${user.password}/${encodedName}\n`;
+      // Format: /proxy/username/password/streamName/index.m3u8 or stream.ts
+      if (format === "ts") {
+        playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/stream.ts\n`;
+      } else {
+        playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/index.m3u8\n`;
+      }
     });
 
     return playlist;
   };
 
   const handleDownloadPlaylist = (user: StreamingUser) => {
-    const playlist = generateM3UPlaylist(user);
+    const playlist = generateM3UPlaylist(user, outputFormat);
     const blob = new Blob([playlist], { type: 'application/x-mpegurl' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${user.username}_playlist.m3u`;
+    a.download = `${user.username}_${outputFormat}_playlist.m3u`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast({ title: "Downloaded", description: `Playlist downloaded for ${user.username}` });
+    toast({ title: "Preuzeto", description: `${outputFormat.toUpperCase()} playlist preuzet za ${user.username}` });
   };
 
-  const handleCopyPlaylistUrl = (user: StreamingUser) => {
+  const handleCopyPlaylistUrl = async (user: StreamingUser) => {
     const serverUrl = getServerUrl();
-    const url = `${serverUrl}/get.php?username=${user.username}&password=${user.password}&type=m3u_plus&output=m3u8`;
-    navigator.clipboard.writeText(url);
-    toast({ title: "Kopirano", description: "Playlist URL kopiran u clipboard" });
+    const url = `${serverUrl}/get.php?username=${user.username}&password=${user.password}&type=m3u_plus&output=${outputFormat}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Kopirano", description: `${outputFormat.toUpperCase()} playlist URL kopiran u clipboard` });
+    } catch (err) {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = url;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      toast({ title: "Kopirano", description: `${outputFormat.toUpperCase()} playlist URL kopiran u clipboard` });
+    }
   };
 
   const formatDate = (dateStr: string) => {
@@ -308,8 +337,8 @@ const Users = () => {
           </div>
 
           {/* Search & Filters */}
-          <div className="mb-6 flex gap-4">
-            <div className="relative flex-1">
+          <div className="mb-6 flex gap-4 flex-wrap items-center">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search users..."
@@ -317,6 +346,18 @@ const Users = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-sm text-muted-foreground whitespace-nowrap">Output Format:</Label>
+              <Select value={outputFormat} onValueChange={(v) => setOutputFormat(v as "m3u8" | "ts")}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="m3u8">HLS (M3U8)</SelectItem>
+                  <SelectItem value="ts">TS Stream</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

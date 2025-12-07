@@ -35,8 +35,29 @@ const Activity = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const getDockerUrl = () => {
+    // Use current origin for Docker deployment
+    return window.location.origin;
+  };
+
   const fetchLogs = async () => {
     setLoading(true);
+    
+    // Try to fetch from Docker backend first
+    const dockerUrl = getDockerUrl();
+    try {
+      const response = await fetch(`${dockerUrl}/api/activity-logs`);
+      if (response.ok) {
+        const data = await response.json();
+        setLogs(data);
+        setLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.log("Could not fetch from Docker backend, trying Supabase...");
+    }
+    
+    // Fallback to Supabase
     const { data, error } = await supabase
       .from('activity_logs')
       .select('*')
@@ -51,6 +72,9 @@ const Activity = () => {
 
   useEffect(() => {
     fetchLogs();
+    // Auto refresh every 10 seconds
+    const interval = setInterval(fetchLogs, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const filteredLogs = logs.filter(log => 
