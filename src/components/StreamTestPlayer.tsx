@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import Hls from "hls.js";
 import * as dashjs from "dashjs";
-import { Play, Pause, Volume2, VolumeX, AlertCircle, Loader2, Maximize, Subtitles } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, AlertCircle, Loader2, Maximize, Subtitles, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -9,6 +9,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 
 interface SubtitleTrack {
@@ -16,6 +18,14 @@ interface SubtitleTrack {
   name: string;
   lang?: string;
   isExternal?: boolean;
+}
+
+interface QualityLevel {
+  id: number;
+  height: number;
+  width?: number;
+  bitrate: number;
+  label: string;
 }
 
 interface StreamTestPlayerProps {
@@ -49,9 +59,78 @@ export const StreamTestPlayer = ({
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [activeSubtitle, setActiveSubtitle] = useState<number>(-1);
   const [playerType, setPlayerType] = useState<'hls' | 'dash' | 'native'>('hls');
+  
+  // ABR Quality state
+  const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
+  const [activeQuality, setActiveQuality] = useState<number>(-1); // -1 = auto
+  const [isAutoQuality, setIsAutoQuality] = useState(true);
+  const [currentBitrate, setCurrentBitrate] = useState<number>(0);
 
   // Detect if stream is DASH/MPD
   const isDash = inputType === 'mpd' || streamUrl.toLowerCase().includes('.mpd');
+  
+  // Format bitrate for display
+  const formatBitrate = (bitrate: number): string => {
+    if (bitrate >= 1000000) {
+      return `${(bitrate / 1000000).toFixed(1)} Mbps`;
+    }
+    return `${Math.round(bitrate / 1000)} kbps`;
+  };
+  
+  // Get quality label
+  const getQualityLabel = (level: QualityLevel): string => {
+    const resolution = level.height >= 2160 ? '4K' : 
+                       level.height >= 1440 ? '1440p' :
+                       level.height >= 1080 ? '1080p' :
+                       level.height >= 720 ? '720p' :
+                       level.height >= 480 ? '480p' :
+                       level.height >= 360 ? '360p' : `${level.height}p`;
+    return `${resolution} (${formatBitrate(level.bitrate)})`;
+  };
+  
+  // Set quality level
+  const setQualityLevel = (levelId: number) => {
+    if (levelId === -1) {
+      // Auto quality
+      setIsAutoQuality(true);
+      setActiveQuality(-1);
+      
+      if (hlsRef.current) {
+        hlsRef.current.currentLevel = -1;
+        console.log("[HLS] Set to auto quality");
+      }
+      if (dashRef.current) {
+        dashRef.current.updateSettings({
+          streaming: {
+            abr: {
+              autoSwitchBitrate: { video: true, audio: true }
+            }
+          }
+        });
+        console.log("[DASH] Set to auto quality");
+      }
+    } else {
+      // Manual quality
+      setIsAutoQuality(false);
+      setActiveQuality(levelId);
+      
+      if (hlsRef.current) {
+        hlsRef.current.currentLevel = levelId;
+        console.log("[HLS] Set quality to level:", levelId);
+      }
+      if (dashRef.current) {
+        dashRef.current.updateSettings({
+          streaming: {
+            abr: {
+              autoSwitchBitrate: { video: false, audio: false }
+            }
+          }
+        });
+        dashRef.current.setRepresentationForTypeByIndex('video', levelId, true);
+        console.log("[DASH] Set quality to level:", levelId);
+      }
+    }
+  };
 
   // Add external WebVTT track to video element
   const addExternalSubtitle = (video: HTMLVideoElement) => {
@@ -152,6 +231,22 @@ export const StreamTestPlayer = ({
           console.log("[DASH] Manifest loaded successfully");
           setLoading(false);
           
+          // Get video quality levels using getRepresentationsByType
+          const representations = player.getRepresentationsByType('video');
+          if (representations && representations.length > 0) {
+            const levels: QualityLevel[] = representations.map((rep, index) => ({
+              id: index,
+              height: rep.height,
+              width: rep.width,
+              bitrate: rep.bandwidth,
+              label: `${rep.height}p`,
+            }));
+            // Sort by bitrate descending
+            levels.sort((a, b) => b.bitrate - a.bitrate);
+            setQualityLevels(levels);
+            console.log("[DASH] Found quality levels:", levels);
+          }
+          
           // Check for text tracks
           const tracks = player.getTracksFor('text');
           if (tracks && tracks.length > 0) {
@@ -174,6 +269,20 @@ export const StreamTestPlayer = ({
               lang: webvttLanguage || 'hr',
               isExternal: true,
             }]);
+          }
+        });
+        
+        // Track current quality
+        player.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (e: { mediaType?: string; newQuality?: number }) => {
+          if (e.mediaType === 'video' && e.newQuality !== undefined) {
+            const representations = player.getRepresentationsByType('video');
+            if (representations && representations[e.newQuality]) {
+              setCurrentBitrate(representations[e.newQuality].bandwidth);
+              if (isAutoQuality) {
+                setActiveQuality(e.newQuality);
+              }
+            }
+            console.log("[DASH] Quality changed to:", e.newQuality);
           }
         });
         
@@ -222,9 +331,24 @@ export const StreamTestPlayer = ({
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         setLoading(false);
-        console.log("HLS manifest parsed, subtitle tracks:", hls.subtitleTracks);
+        console.log("HLS manifest parsed, levels:", data.levels?.length, "subtitle tracks:", hls.subtitleTracks);
+        
+        // Get quality levels
+        if (hls.levels && hls.levels.length > 0) {
+          const levels: QualityLevel[] = hls.levels.map((level, index) => ({
+            id: index,
+            height: level.height,
+            width: level.width,
+            bitrate: level.bitrate,
+            label: `${level.height}p`,
+          }));
+          // Sort by bitrate descending
+          levels.sort((a, b) => b.bitrate - a.bitrate);
+          setQualityLevels(levels);
+          console.log("[HLS] Found quality levels:", levels);
+        }
         
         const tracks: SubtitleTrack[] = [];
         
@@ -261,6 +385,18 @@ export const StreamTestPlayer = ({
           console.log("Autoplay blocked:", e);
           setLoading(false);
         });
+      });
+      
+      // Track level switching
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+        const level = hls.levels[data.level];
+        if (level) {
+          setCurrentBitrate(level.bitrate);
+          if (isAutoQuality) {
+            setActiveQuality(data.level);
+          }
+          console.log("[HLS] Level switched to:", data.level, level.height + "p");
+        }
       });
 
       hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_, data) => {
@@ -513,12 +649,55 @@ export const StreamTestPlayer = ({
                   </DropdownMenu>
                 )}
                 
+                {/* Quality selector */}
+                {qualityLevels.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-white hover:bg-white/20"
+                      >
+                        <Settings className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center" className="min-w-[180px] bg-popover z-50">
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        Kvaliteta videa
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem 
+                        onClick={() => setQualityLevel(-1)}
+                        className={isAutoQuality ? 'bg-accent' : ''}
+                      >
+                        <span className="flex-1">Auto</span>
+                        {isAutoQuality && currentBitrate > 0 && (
+                          <span className="text-xs text-muted-foreground ml-2">
+                            {formatBitrate(currentBitrate)}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {qualityLevels.map((level) => (
+                        <DropdownMenuItem
+                          key={level.id}
+                          onClick={() => setQualityLevel(level.id)}
+                          className={!isAutoQuality && activeQuality === level.id ? 'bg-accent' : ''}
+                        >
+                          {getQualityLabel(level)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                
                 <div className="flex-1" />
                 
-                {/* Subtitle indicator */}
-                {subtitleTracks.length > 0 && (
+                {/* Current quality indicator */}
+                {qualityLevels.length > 0 && (
                   <span className="text-xs text-white/70">
-                    {subtitleTracks.length} titl{subtitleTracks.length === 1 ? '' : 'ova'}
+                    {isAutoQuality ? 'Auto' : qualityLevels.find(l => l.id === activeQuality)?.label || ''}
+                    {currentBitrate > 0 && ` • ${formatBitrate(currentBitrate)}`}
                   </span>
                 )}
                 
