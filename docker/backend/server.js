@@ -1221,9 +1221,21 @@ app.get('/proxy/*', async (req, res) => {
     // Handle different stream types
     let effectiveFilePath = filePath;
     
-    // For manifest.mpd requests, use the MPD URL directly
-    if (filePath === 'manifest.mpd') {
-      // If input_url ends with .mpd, use it directly
+    // For index.m3u8 or index.ts requests, use the input_url directly if it's already an m3u8
+    if (filePath === 'index.m3u8' || filePath === 'index.ts') {
+      if (inputUrl.endsWith('.m3u8')) {
+        // Input URL is already an m3u8 file - use it directly
+        targetUrl = inputUrl;
+        effectiveFilePath = 'index.m3u8';
+      } else if (inputUrl.endsWith('/')) {
+        targetUrl = `${inputUrl}index.m3u8`;
+        effectiveFilePath = 'index.m3u8';
+      } else {
+        targetUrl = `${inputUrl}/index.m3u8`;
+        effectiveFilePath = 'index.m3u8';
+      }
+    } else if (filePath === 'manifest.mpd') {
+      // For manifest.mpd requests, use the MPD URL directly
       if (inputUrl.endsWith('.mpd')) {
         targetUrl = inputUrl;
       } else if (inputUrl.endsWith('/')) {
@@ -1231,29 +1243,21 @@ app.get('/proxy/*', async (req, res) => {
       } else {
         targetUrl = `${inputUrl}/manifest.mpd`;
       }
-    } else if (filePath === 'index.ts') {
-      // Handle index.ts - treat same as index.m3u8 (HLS)
-      effectiveFilePath = 'index.m3u8';
-      if (inputUrl.endsWith('/')) {
-        targetUrl = `${inputUrl}${effectiveFilePath}`;
-      } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
-        const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-        targetUrl = `${baseUrl}${effectiveFilePath}`;
-      } else {
-        targetUrl = `${inputUrl}/${effectiveFilePath}`;
-      }
     } else if (inputUrl.endsWith('.mpd')) {
       // For MPD streams requesting segments or other files
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
       targetUrl = `${baseUrl}${effectiveFilePath}`;
-    } else if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${effectiveFilePath}`;
-    } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
+    } else if (inputUrl.endsWith('.m3u8')) {
+      // For HLS streams requesting segments - use base URL
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
       targetUrl = `${baseUrl}${effectiveFilePath}`;
+    } else if (inputUrl.endsWith('/')) {
+      targetUrl = `${inputUrl}${effectiveFilePath}`;
     } else {
       targetUrl = `${inputUrl}/${effectiveFilePath}`;
     }
+    
+    console.log(`[Proxy] Target URL: ${targetUrl}`);
     
     // Helper function to extract redirect URL from HTML
     const extractRedirectUrl = (html) => {
