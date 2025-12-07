@@ -166,7 +166,7 @@ const Streams = () => {
     link.click();
   };
 
-  const totalViewers = streams.reduce((sum, s) => sum + s.viewers, 0);
+  // Note: Viewers data is not tracked in real-time, removed fake numbers
   const liveStreams = streams.filter(s => s.status === "live").length;
   const webvttEnabled = streams.filter(s => s.webvtt_enabled).length;
 
@@ -461,7 +461,7 @@ const Streams = () => {
           </div>
 
           {/* Stats */}
-          <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-6 grid gap-4 grid-cols-2 lg:grid-cols-3">
             <div className="glass rounded-xl p-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
@@ -484,18 +484,7 @@ const Streams = () => {
                 </div>
               </div>
             </div>
-            <div className="glass rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/20">
-                  <Video className="h-5 w-5 text-warning" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{totalViewers}</p>
-                  <p className="text-sm text-muted-foreground">Gledatelja</p>
-                </div>
-              </div>
-            </div>
-            <div className="glass rounded-xl p-4">
+            <div className="glass rounded-xl p-4 col-span-2 lg:col-span-1">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/20">
                   <Subtitles className="h-5 w-5 text-accent" />
@@ -569,7 +558,7 @@ const Streams = () => {
           </div>
 
           {/* Stream Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
             {filteredStreams.map((stream) => {
               const status = statusConfig[stream.status as keyof typeof statusConfig] || statusConfig.inactive;
               return (
@@ -607,11 +596,7 @@ const Streams = () => {
                     )}
                   </div>
                   
-                  <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
-                    <div className="text-center p-2 rounded bg-muted/50">
-                      <p className="text-muted-foreground">Gledatelji</p>
-                      <p className="font-semibold text-foreground">{stream.viewers}</p>
-                    </div>
+                  <div className="mb-4 grid grid-cols-2 gap-2 text-xs">
                     <div className="text-center p-2 rounded bg-muted/50">
                       <p className="text-muted-foreground">Bitrate</p>
                       <p className="font-semibold text-foreground">{stream.bitrate} kbps</p>
