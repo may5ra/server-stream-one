@@ -40,6 +40,11 @@ serve(async (req) => {
         endpoint = `/api/streams/sync/${data.id}`;
         method = 'DELETE';
         break;
+      case 'cleanup-streams':
+        // Remove orphan streams from Docker backend
+        endpoint = '/api/streams/cleanup';
+        body = JSON.stringify({ validIds: data.validIds });
+        break;
       case 'sync-users':
         endpoint = '/api/streaming-users/sync';
         body = JSON.stringify({ users: data });
