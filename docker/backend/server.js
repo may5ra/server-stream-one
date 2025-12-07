@@ -47,6 +47,7 @@ function setCachedUser(username, data) {
 }
 
 // Clear expired cache entries every 5 minutes
+// Clear expired cache entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [key, value] of streamCache) {
@@ -56,6 +57,57 @@ setInterval(() => {
     if (now - value.cachedAt > CACHE_TTL) userCache.delete(key);
   }
 }, 300000);
+
+// ==================== CACHE PRE-WARMING ====================
+// Load all streams and users into cache at startup for instant access
+async function prewarmCache() {
+  try {
+    console.log('[Cache] Pre-warming cache...');
+    
+    // Load all active streams
+    const streamsResult = await pool.query(
+      "SELECT name, input_url FROM streams WHERE status != 'error'"
+    );
+    for (const stream of streamsResult.rows) {
+      setCachedStream(stream.name, stream);
+    }
+    console.log(`[Cache] Loaded ${streamsResult.rows.length} streams`);
+    
+    // Load all active streaming users
+    const usersResult = await pool.query(
+      "SELECT * FROM streaming_users WHERE status != 'disabled'"
+    );
+    for (const user of usersResult.rows) {
+      setCachedUser(user.username, user);
+    }
+    console.log(`[Cache] Loaded ${usersResult.rows.length} users`);
+    
+    console.log('[Cache] Pre-warming complete!');
+  } catch (error) {
+    console.error('[Cache] Pre-warming failed:', error.message);
+  }
+}
+
+// Refresh cache every 30 seconds to keep it warm
+setInterval(async () => {
+  try {
+    const streamsResult = await pool.query(
+      "SELECT name, input_url FROM streams WHERE status != 'error'"
+    );
+    for (const stream of streamsResult.rows) {
+      setCachedStream(stream.name, stream);
+    }
+    
+    const usersResult = await pool.query(
+      "SELECT * FROM streaming_users WHERE status != 'disabled'"
+    );
+    for (const user of usersResult.rows) {
+      setCachedUser(user.username, user);
+    }
+  } catch (error) {
+    console.error('[Cache] Refresh failed:', error.message);
+  }
+}, 30000);
 
 // Middleware
 app.use(cors());
@@ -1180,7 +1232,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start server
-app.listen(PORT, () => {
+// Start server and pre-warm cache
+app.listen(PORT, async () => {
   console.log(`StreamPanel API running on port ${PORT}`);
+  // Pre-warm cache after server starts
+  await prewarmCache();
 });
