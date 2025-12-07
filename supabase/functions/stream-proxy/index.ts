@@ -252,14 +252,11 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Check if stream is active (not stopped/inactive)
-    if (stream.status !== 'live') {
-      console.log(`[Proxy] Stream is not active: ${streamName}, status: ${stream.status}`)
-      return new Response(JSON.stringify({ error: 'Stream is currently offline' }), {
-        status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
-    }
+    // NOTE: Stream status check removed from proxy
+    // Status is now controlled via Xtream API - if stream is not 'live', 
+    // it won't appear in player's channel list, so users won't try to play it
+    // But if someone has the direct URL, they can still access the stream
+    console.log(`[Proxy] Stream found: ${streamName}, status: ${stream.status}`);
 
     if (!stream.input_url) {
       console.error('[Proxy] Stream has no input URL:', streamName)
