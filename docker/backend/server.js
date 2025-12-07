@@ -64,9 +64,9 @@ async function prewarmCache() {
   try {
     console.log('[Cache] Pre-warming cache...');
     
-    // Load all active streams
+    // Load all active streams (include status for proxy check)
     const streamsResult = await pool.query(
-      "SELECT name, input_url FROM streams WHERE status != 'error'"
+      "SELECT name, input_url, status FROM streams WHERE status != 'error'"
     );
     for (const stream of streamsResult.rows) {
       setCachedStream(stream.name, stream);
@@ -92,7 +92,7 @@ async function prewarmCache() {
 setInterval(async () => {
   try {
     const streamsResult = await pool.query(
-      "SELECT name, input_url FROM streams WHERE status != 'error'"
+      "SELECT name, input_url, status FROM streams WHERE status != 'error'"
     );
     for (const stream of streamsResult.rows) {
       setCachedStream(stream.name, stream);
@@ -1125,7 +1125,7 @@ app.get('/proxy/*', async (req, res) => {
     
     if (!stream) {
       const streamResult = await pool.query(
-        'SELECT input_url, name FROM streams WHERE name = $1',
+        'SELECT input_url, name, status FROM streams WHERE name = $1',
         [decodedStreamName]
       );
       
@@ -1136,6 +1136,12 @@ app.get('/proxy/*', async (req, res) => {
       
       stream = streamResult.rows[0];
       setCachedStream(decodedStreamName, stream);
+    }
+    
+    // Check if stream is active (not stopped/inactive)
+    if (stream.status !== 'live') {
+      console.log(`[Proxy] Stream is not active: ${streamName}, status: ${stream.status}`);
+      return res.status(503).json({ error: 'Stream is currently offline' });
     }
     
     if (!stream.input_url) {
