@@ -31,7 +31,14 @@ const inputTypeLabels: Record<string, string> = {
 };
 
 const Streams = () => {
-  const { streams, loading, addStream, updateStream, deleteStream, toggleStream, refetch } = useStreams();
+  const { streams, loading, addStream, updateStream, deleteStream, toggleStream, refetch, syncAllStreams } = useStreams();
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncAll = async () => {
+    setSyncing(true);
+    await syncAllStreams();
+    setSyncing(false);
+  };
   const { settings, getStreamUrl } = useSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -164,6 +171,15 @@ const Streams = () => {
             </div>
             
             <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={handleSyncAll}
+                disabled={syncing}
+              >
+                <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Sinkroniziram...' : 'Sync Backend'}
+              </Button>
+              
               <M3UImportDialog onImportComplete={refetch} />
               
               <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
