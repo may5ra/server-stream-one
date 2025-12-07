@@ -113,12 +113,17 @@ Deno.serve(async (req) => {
         m3u += `#EXTINF:-1,${stream.name}\n`;
       }
       
-      // For HLS streams, use proxy URL format with auth
+      const encodedName = encodeURIComponent(stream.name);
+      
+      // Generate URL based on input type
       if (stream.input_type === "hls") {
-        const encodedName = encodeURIComponent(stream.name);
+        // HLS streams use proxy with .m3u8 extension
         m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
+      } else if (stream.input_type === "mpd") {
+        // MPD/DASH streams use proxy with .mpd extension
+        m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/manifest.mpd\n`;
       } else {
-        // For RTMP/other streams, use traditional format
+        // For RTMP/SRT/other streams, use traditional format
         const ext = output === "ts" ? ".ts" : ".m3u8";
         m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
       }
