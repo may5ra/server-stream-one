@@ -1268,8 +1268,13 @@ app.get('/proxy/*', async (req, res) => {
         targetUrl = baseUrl + filePath;
         console.log(`[Proxy] Segment using fallback: ${targetUrl}`);
       }
-    } else if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts') {
-      // Use cached base URL for this specific path (sub-manifests with directory)
+    } else if (filePath.includes('/') && filePath.endsWith('.m3u8') && masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
+      // For sub-manifests, use MASTER session (not old cached sub-manifest session)
+      // This ensures we use the same session as the master manifest
+      targetUrl = masterCachedBase.baseUrl + filePath;
+      console.log(`[Proxy] Sub-manifest using master session: ${targetUrl}`);
+    } else if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts' && !filePath.endsWith('.m3u8')) {
+      // Use cached base URL for non-manifest paths (segments with directory prefix)
       const fileName = filePath.includes('/') ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
       targetUrl = cachedBase.baseUrl + fileName;
       console.log(`[Proxy] Using cached base URL for path: ${targetUrl}`);
@@ -1373,6 +1378,22 @@ app.get('/proxy/*', async (req, res) => {
         // Cache with path prefix for sub-manifests
         const pathPrefix = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
         const cacheKey = pathPrefix ? `${decodedStreamName}:${pathPrefix}` : decodedStreamName;
+        
+        // If this is the master manifest (index.m3u8), clear all sub-manifest caches for this stream
+        // because the session ID has changed
+        if (filePath === 'index.m3u8' || filePath === 'index.ts') {
+          const keysToDelete = [];
+          for (const key of global.streamBaseUrlCache.keys()) {
+            if (key.startsWith(decodedStreamName + ':')) {
+              keysToDelete.push(key);
+            }
+          }
+          keysToDelete.forEach(k => {
+            global.streamBaseUrlCache.delete(k);
+            console.log(`[Proxy] Cleared old sub-manifest cache: ${k}`);
+          });
+        }
+        
         global.streamBaseUrlCache.set(cacheKey, {
           baseUrl: resolvedBaseUrl,
           timestamp: Date.now()
