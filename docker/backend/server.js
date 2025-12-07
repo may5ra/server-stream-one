@@ -599,15 +599,22 @@ app.get('/get.php', async (req, res) => {
     
     let playlist = '#EXTM3U\n';
     
-    // Live streams
-    const streams = await pool.query('SELECT * FROM streams WHERE status != $1 ORDER BY channel_number', ['error']);
+    // Live streams - order by bouquet (country), then category, then channel number
+    const streams = await pool.query(
+      'SELECT * FROM streams WHERE status != $1 ORDER BY bouquet NULLS LAST, category NULLS LAST, channel_number NULLS LAST',
+      ['error']
+    );
     
     // Determine output format: m3u8 (HLS) or ts (direct transport stream)
     // output=ts generates .ts URLs, output=m3u8 or default generates HLS index.m3u8
     const useTs = output === 'ts';
     
     for (const stream of streams.rows) {
-      playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${stream.category || ''}",${stream.name}\n`;
+      // Use bouquet for group-title (country grouping like "Slovenia", "Croatia")
+      // Falls back to category if bouquet is not set
+      const groupTitle = stream.bouquet || stream.category || 'Uncategorized';
+      
+      playlist += `#EXTINF:-1 tvg-id="${stream.epg_channel_id || ''}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${groupTitle}",${stream.name}\n`;
       // Format: /proxy/username/password/streamName/index.m3u8 or /index.ts
       if (useTs) {
         // TS format - use index.ts (works, stream.ts doesn't work)
