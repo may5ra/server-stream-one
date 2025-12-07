@@ -1,8 +1,25 @@
-import { Bell, Search, User } from "lucide-react";
+import { Search, User, LogOut, Settings, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MobileNav } from "./MobileNav";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export function Header() {
+  const { user, signOut, isAdmin } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 backdrop-blur-xl px-4 lg:px-6">
       {/* Mobile Nav + Search */}
@@ -20,24 +37,48 @@ export function Header() {
 
       {/* Actions */}
       <div className="flex items-center gap-3">
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
-            3
-          </span>
-        </Button>
-
-        {/* User - hidden on small screens */}
-        <div className="hidden sm:flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-1.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20">
-            <User className="h-4 w-4 text-primary" />
-          </div>
-          <div className="text-left">
-            <p className="text-sm font-medium text-foreground">Admin</p>
-            <p className="text-xs text-muted-foreground">Super Admin</p>
-          </div>
-        </div>
+        {/* User Menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-1.5 h-auto">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              <div className="text-left hidden sm:block">
+                <p className="text-sm font-medium text-foreground">
+                  {user?.email?.split('@')[0] || 'Admin'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {isAdmin ? 'Administrator' : 'Korisnik'}
+                </p>
+              </div>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <div className="px-2 py-1.5">
+              <p className="text-sm font-medium">{user?.email}</p>
+              <p className="text-xs text-muted-foreground">
+                {isAdmin ? 'Administrator' : 'Korisnik'}
+              </p>
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => navigate('/settings')}>
+              <Settings className="mr-2 h-4 w-4" />
+              Postavke
+            </DropdownMenuItem>
+            {isAdmin && (
+              <DropdownMenuItem onClick={() => navigate('/security')}>
+                <Shield className="mr-2 h-4 w-4" />
+                Sigurnost
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
+              <LogOut className="mr-2 h-4 w-4" />
+              Odjava
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

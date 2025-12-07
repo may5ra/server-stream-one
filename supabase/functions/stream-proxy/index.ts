@@ -252,6 +252,15 @@ Deno.serve(async (req) => {
       })
     }
 
+    // Check if stream is active (not stopped/inactive)
+    if (stream.status !== 'live') {
+      console.log(`[Proxy] Stream is not active: ${streamName}, status: ${stream.status}`)
+      return new Response(JSON.stringify({ error: 'Stream is currently offline' }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
     if (!stream.input_url) {
       console.error('[Proxy] Stream has no input URL:', streamName)
       return new Response(JSON.stringify({ error: 'Stream has no source URL' }), {
