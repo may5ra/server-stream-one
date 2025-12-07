@@ -1465,40 +1465,56 @@ app.get('/proxy/*', async (req, res) => {
       const body = await response.arrayBuffer();
       let bodyBuffer = Buffer.from(body);
       
-      // For m3u8 playlists, convert relative URLs to absolute (no proxy rewriting)
-      // This lets the player directly fetch from source and choose best quality
+      // For m3u8 playlists, rewrite URLs to go through our proxy
+      // This ensures segments are fetched through us (source may block direct requests)
       if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') {
         let m3u8Content = bodyBuffer.toString('utf8');
         
-        // Get the base URL from the final resolved URL (after redirects)
-        const cachedBase = global.streamBaseUrlCache.get(decodedStreamName);
-        const baseUrl = cachedBase ? cachedBase.baseUrl : (targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1));
+        // Get the proxy base URL for this stream
+        const proxyBaseUrl = `/proxy/${encodeURIComponent(streamName)}/`;
         
-        // Convert relative URLs to absolute URLs (direct to source)
+        // Cache the resolved base URL for building segment URLs later
+        const cachedBase = global.streamBaseUrlCache.get(decodedStreamName);
+        const sourceBaseUrl = cachedBase ? cachedBase.baseUrl : (targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1));
+        
+        // Rewrite all URLs to go through our proxy
         const lines = m3u8Content.split('\n');
         const rewrittenLines = lines.map(line => {
           const trimmedLine = line.trim();
           
-          // Handle URI="..." in tags
+          // Handle URI="..." in tags like EXT-X-MEDIA
           if (trimmedLine.startsWith('#') && trimmedLine.includes('URI="')) {
             return line.replace(/URI="([^"]+)"/g, (match, uri) => {
               if (uri.startsWith('http://') || uri.startsWith('https://')) {
-                return match;
+                // Absolute URL - extract path and route through proxy
+                try {
+                  const urlObj = new URL(uri);
+                  return `URI="${proxyBaseUrl}${urlObj.pathname.substring(1)}"`;
+                } catch {
+                  return match;
+                }
               }
-              return `URI="${baseUrl}${uri}"`;
+              return `URI="${proxyBaseUrl}${uri}"`;
             });
           }
           if (trimmedLine.startsWith('#') || !trimmedLine) return line;
           
-          // Convert relative to absolute
-          if (!trimmedLine.startsWith('http://') && !trimmedLine.startsWith('https://')) {
-            return baseUrl + trimmedLine;
+          // Rewrite segment/manifest URLs to go through proxy
+          if (trimmedLine.startsWith('http://') || trimmedLine.startsWith('https://')) {
+            // Absolute URL - extract path and route through proxy
+            try {
+              const urlObj = new URL(trimmedLine);
+              return proxyBaseUrl + urlObj.pathname.substring(1);
+            } catch {
+              return line;
+            }
           }
-          return line;
+          // Relative URL - just prepend proxy base
+          return proxyBaseUrl + trimmedLine;
         });
         
         m3u8Content = rewrittenLines.join('\n');
-        console.log(`[Proxy] Converted to absolute URLs using: ${baseUrl}`);
+        console.log(`[Proxy] Rewrote URLs through proxy: ${proxyBaseUrl}`);
         bodyBuffer = Buffer.from(m3u8Content, 'utf8');
       }
       
