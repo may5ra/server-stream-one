@@ -1489,67 +1489,125 @@ app.get('/proxy/*', async (req, res) => {
         
         if (isManifest) {
           // ONLY manifests should trigger cache clear and retry
-          const hadCache = global.streamBaseUrlCache.has(cacheKey) || global.streamBaseUrlCache.has(masterCacheKey) || global.streamBaseUrlCache.has(decodedStreamName);
-          if (hadCache) {
-            console.log(`[Proxy] Manifest 404, clearing cache for ${decodedStreamName} and retrying with fresh session...`);
-            
-            // Clear all caches for this stream
-            const keysToDelete = [];
-            for (const key of global.streamBaseUrlCache.keys()) {
-              if (key === decodedStreamName || key.startsWith(decodedStreamName + ':')) {
-                keysToDelete.push(key);
-              }
+          console.log(`[Proxy] Manifest 404, clearing cache for ${decodedStreamName} and retrying with fresh session...`);
+          
+          // Clear ALL caches for this stream
+          const keysToDelete = [];
+          for (const key of global.streamBaseUrlCache.keys()) {
+            if (key === decodedStreamName || key.startsWith(decodedStreamName + ':')) {
+              keysToDelete.push(key);
             }
-            keysToDelete.forEach(k => global.streamBaseUrlCache.delete(k));
+          }
+          keysToDelete.forEach(k => global.streamBaseUrlCache.delete(k));
+          
+          // Also invalidate stream cache to force fresh DB lookup
+          invalidateStreamCache(decodedStreamName);
+          
+          // Retry with FRESH fetch from original input_url - following ALL redirects
+          // This is critical for session-based streams like Slovenian ones
+          try {
+            // Start from the original input URL and follow redirects to get new session
+            let freshUrl = stream.input_url.trim();
+            if (!freshUrl.endsWith('.m3u8') && !freshUrl.endsWith('.mpd')) {
+              freshUrl = freshUrl.replace(/\/$/, '') + '/' + getDefaultFile(stream.input_url);
+            }
             
-            // Now retry the request with fresh URL (no cache)
-            try {
-              const freshUrl = stream.input_url.replace(/\/$/, '') + '/' + getDefaultFile(stream.input_url);
-              console.log(`[Proxy] Retrying manifest with fresh URL: ${freshUrl}`);
-              
-              const retryResponse = await fetch(freshUrl, {
-                redirect: 'follow',
+            console.log(`[Proxy] Fetching fresh session from: ${freshUrl}`);
+            
+            // Follow ALL redirects (HTTP + HTML) to get fresh session
+            let retryUrl = freshUrl;
+            let retryResponse;
+            let retryRedirects = 0;
+            const maxRetryRedirects = 10;
+            
+            while (retryRedirects < maxRetryRedirects) {
+              retryResponse = await fetch(retryUrl, {
+                redirect: 'manual',
                 headers: {
                   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                   'Accept': '*/*',
                 }
               });
               
-              if (retryResponse.ok) {
-                // Cache the new session URL
-                const finalUrl = retryResponse.url || freshUrl;
-                const newBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
-                global.streamBaseUrlCache.set(decodedStreamName, {
-                  baseUrl: newBaseUrl,
-                  timestamp: Date.now()
-                });
-                console.log(`[Proxy] Got fresh session, cached: ${newBaseUrl}`);
-                
-                // Return the fresh manifest
-                let manifestContent = await retryResponse.text();
-                
-                // Rewrite URLs in manifest
-                const lines = manifestContent.split('\n');
-                const rewrittenLines = lines.map(line => {
-                  const trimmed = line.trim();
-                  if (trimmed && !trimmed.startsWith('#')) {
-                    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-                      return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed.split('/').pop()}`;
-                    } else if (!trimmed.startsWith('/')) {
-                      return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed}`;
-                    }
+              // Handle HTTP redirects
+              if ([301, 302, 303, 307, 308].includes(retryResponse.status)) {
+                const location = retryResponse.headers.get('location');
+                if (location) {
+                  if (location.startsWith('/')) {
+                    const urlObj = new URL(retryUrl);
+                    retryUrl = `${urlObj.protocol}//${urlObj.host}${location}`;
+                  } else if (!location.startsWith('http')) {
+                    const baseUrl = retryUrl.substring(0, retryUrl.lastIndexOf('/') + 1);
+                    retryUrl = baseUrl + location;
+                  } else {
+                    retryUrl = location;
                   }
-                  return line;
-                });
-                
-                res.setHeader('Access-Control-Allow-Origin', '*');
-                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-                res.setHeader('Cache-Control', 'no-cache');
-                return res.send(rewrittenLines.join('\n'));
+                  console.log(`[Proxy] Retry: following redirect to: ${retryUrl}`);
+                  retryRedirects++;
+                  continue;
+                }
               }
-            } catch (retryErr) {
-              console.error(`[Proxy] Retry failed: ${retryErr.message}`);
+              
+              // Handle HTML redirect pages
+              const retryContentType = retryResponse.headers.get('content-type') || '';
+              if (retryResponse.ok && retryContentType.includes('text/html')) {
+                const html = await retryResponse.text();
+                const hrefMatch = html.match(/href=["']?([^"'\s>]+\.m3u8[^"'\s>]*)["']?/i);
+                if (hrefMatch) {
+                  retryUrl = hrefMatch[1];
+                  console.log(`[Proxy] Retry: found HTML redirect to: ${retryUrl}`);
+                  retryRedirects++;
+                  continue;
+                }
+              }
+              
+              break;
             }
+            
+            if (retryResponse && retryResponse.ok) {
+              // Cache the new session URL
+              const finalUrl = retryResponse.url || retryUrl;
+              const newBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
+              global.streamBaseUrlCache.set(decodedStreamName, {
+                baseUrl: newBaseUrl,
+                timestamp: Date.now()
+              });
+              console.log(`[Proxy] Got fresh session, cached: ${newBaseUrl}`);
+              
+              // Return the fresh manifest
+              let manifestContent;
+              const contentType = retryResponse.headers.get('content-type') || '';
+              if (!contentType.includes('text/html')) {
+                manifestContent = await retryResponse.text();
+              } else {
+                // Already consumed HTML above
+                console.error(`[Proxy] Retry ended with HTML response`);
+                return res.status(502).json({ error: 'Failed to get fresh manifest' });
+              }
+              
+              // Rewrite URLs in manifest
+              const lines = manifestContent.split('\n');
+              const rewrittenLines = lines.map(line => {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith('#')) {
+                  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+                    return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed.split('/').pop()}`;
+                  } else if (!trimmed.startsWith('/')) {
+                    return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed}`;
+                  }
+                }
+                return line;
+              });
+              
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+              res.setHeader('Cache-Control', 'no-cache');
+              return res.send(rewrittenLines.join('\n'));
+            } else {
+              console.error(`[Proxy] Retry failed with status: ${retryResponse?.status}`);
+            }
+          } catch (retryErr) {
+            console.error(`[Proxy] Retry failed: ${retryErr.message}`);
           }
         }
         
