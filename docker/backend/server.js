@@ -1241,15 +1241,9 @@ app.get('/proxy/*', async (req, res) => {
     const cachedBase = global.streamBaseUrlCache.get(cacheKey);
     const masterCachedBase = global.streamBaseUrlCache.get(masterCacheKey);
     
-    // For .ts segments without path prefix, try to find any cached path that matches
-    
-    if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts') {
-      // Use cached base URL for this specific path
-      const fileName = filePath.includes('/') ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
-      targetUrl = cachedBase.baseUrl + fileName;
-      if (!isSegment) console.log(`[Proxy] Using cached base URL for path: ${targetUrl}`);
-    } else if (isSegment && !filePath.includes('/')) {
-      // Segment without directory - find most recent matching cache
+    // For .ts/.m4s segments without path prefix, find the most recent sub-manifest cache FIRST
+    if (isSegment && !filePath.includes('/')) {
+      // Segment without directory - find most recent matching sub-manifest cache
       let foundCache = null;
       let foundKey = null;
       for (const [key, value] of global.streamBaseUrlCache.entries()) {
@@ -1262,17 +1256,23 @@ app.get('/proxy/*', async (req, res) => {
       }
       if (foundCache) {
         targetUrl = foundCache.baseUrl + filePath;
-        console.log(`[Proxy] Using recent cached base for segment: ${targetUrl}`);
+        console.log(`[Proxy] Segment using sub-manifest cache (${foundKey}): ${targetUrl}`);
       } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
         targetUrl = masterCachedBase.baseUrl + filePath;
-        console.log(`[Proxy] Using master cached base for segment: ${targetUrl}`);
+        console.log(`[Proxy] Segment using master cache: ${targetUrl}`);
       } else {
         // Fallback to constructing from input_url
         const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd') 
           ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
           : inputUrl.endsWith('/') ? inputUrl : inputUrl + '/';
         targetUrl = baseUrl + filePath;
+        console.log(`[Proxy] Segment using fallback: ${targetUrl}`);
       }
+    } else if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts') {
+      // Use cached base URL for this specific path (sub-manifests with directory)
+      const fileName = filePath.includes('/') ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
+      targetUrl = cachedBase.baseUrl + fileName;
+      console.log(`[Proxy] Using cached base URL for path: ${targetUrl}`);
     } else if (filePath === 'index.m3u8' || filePath === 'index.ts') {
       // For main playlist requests, use input_url and resolve redirects
       if (inputUrl.endsWith('.m3u8')) {
