@@ -66,17 +66,15 @@ export const useSettings = () => {
       if (isLovablePreview) {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         if (supabaseUrl) {
-          const extension = inputType === 'mpd' ? 'manifest.mpd' : 'index.m3u8';
-          return `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}/${extension}`;
+          // Don't add extension - let the proxy figure it out from input_url
+          return `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}`;
         }
       }
       
       // For self-hosted Docker, use local proxy endpoint
-      // Use current host (which should be the Docker nginx on port 80)
       const domain = settings.serverDomain || window.location.host;
       const protocol = settings.enableSSL ? 'https' : (window.location.protocol === 'https:' ? 'https' : 'http');
-      const extension = inputType === 'mpd' ? 'manifest.mpd' : 'index.m3u8';
-      return `${protocol}://${domain}/proxy/${encodedName}/${extension}`;
+      return `${protocol}://${domain}/proxy/${encodedName}`;
     }
     
     // For RTMP/SRT/other streams, construct the output URL

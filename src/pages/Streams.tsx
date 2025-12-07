@@ -802,6 +802,7 @@ const Streams = () => {
             onOpenChange={(open) => !open && setTestingStream(null)}
             streamUrl={testingStream ? getStreamUrl(testingStream.name, testingStream.input_type, testingStream.input_url) : ''}
             streamName={testingStream?.name || ''}
+            inputType={testingStream?.input_type}
             webvttUrl={testingStream?.webvtt_enabled ? testingStream.webvtt_url : null}
             webvttLabel={testingStream?.webvtt_label}
             webvttLanguage={testingStream?.webvtt_language}
