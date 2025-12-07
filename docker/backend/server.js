@@ -234,6 +234,162 @@ app.delete('/api/streams/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== STREAMS SYNC (from Supabase) ====================
+
+app.post('/api/streams/sync', async (req, res) => {
+  try {
+    const { streams } = req.body;
+    
+    if (!Array.isArray(streams)) {
+      return res.status(400).json({ error: 'Streams array required' });
+    }
+    
+    let synced = 0, errors = [];
+    
+    for (const stream of streams) {
+      try {
+        await pool.query(`
+          INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            input_type = EXCLUDED.input_type,
+            input_url = EXCLUDED.input_url,
+            category = EXCLUDED.category,
+            bouquet = EXCLUDED.bouquet,
+            channel_number = EXCLUDED.channel_number,
+            output_formats = EXCLUDED.output_formats,
+            bitrate = EXCLUDED.bitrate,
+            resolution = EXCLUDED.resolution,
+            webvtt_enabled = EXCLUDED.webvtt_enabled,
+            webvtt_url = EXCLUDED.webvtt_url,
+            webvtt_language = EXCLUDED.webvtt_language,
+            webvtt_label = EXCLUDED.webvtt_label,
+            dvr_enabled = EXCLUDED.dvr_enabled,
+            dvr_duration = EXCLUDED.dvr_duration,
+            abr_enabled = EXCLUDED.abr_enabled,
+            stream_icon = EXCLUDED.stream_icon,
+            epg_channel_id = EXCLUDED.epg_channel_id,
+            status = EXCLUDED.status,
+            updated_at = NOW()
+        `, [
+          stream.id,
+          stream.name,
+          stream.input_type || 'hls',
+          stream.input_url,
+          stream.category || null,
+          stream.bouquet || null,
+          stream.channel_number || null,
+          stream.output_formats || ['hls'],
+          stream.bitrate || 4500,
+          stream.resolution || '1920x1080',
+          stream.webvtt_enabled || false,
+          stream.webvtt_url || null,
+          stream.webvtt_language || 'hr',
+          stream.webvtt_label || null,
+          stream.dvr_enabled || false,
+          stream.dvr_duration || 24,
+          stream.abr_enabled || false,
+          stream.stream_icon || null,
+          stream.epg_channel_id || null,
+          stream.status || 'inactive',
+          stream.viewers || 0,
+          stream.created_at || new Date().toISOString()
+        ]);
+        synced++;
+      } catch (err) {
+        errors.push({ name: stream.name, error: err.message });
+      }
+    }
+    
+    // Refresh cache after sync
+    await prewarmCache();
+    
+    console.log(`[Sync] Synced ${synced} streams`);
+    res.json({ success: true, synced, errors });
+  } catch (error) {
+    console.error('[Sync] Streams error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/streams/sync-one', async (req, res) => {
+  try {
+    const stream = req.body;
+    
+    await pool.query(`
+      INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        input_type = EXCLUDED.input_type,
+        input_url = EXCLUDED.input_url,
+        category = EXCLUDED.category,
+        bouquet = EXCLUDED.bouquet,
+        channel_number = EXCLUDED.channel_number,
+        output_formats = EXCLUDED.output_formats,
+        bitrate = EXCLUDED.bitrate,
+        resolution = EXCLUDED.resolution,
+        webvtt_enabled = EXCLUDED.webvtt_enabled,
+        webvtt_url = EXCLUDED.webvtt_url,
+        webvtt_language = EXCLUDED.webvtt_language,
+        webvtt_label = EXCLUDED.webvtt_label,
+        dvr_enabled = EXCLUDED.dvr_enabled,
+        dvr_duration = EXCLUDED.dvr_duration,
+        abr_enabled = EXCLUDED.abr_enabled,
+        stream_icon = EXCLUDED.stream_icon,
+        epg_channel_id = EXCLUDED.epg_channel_id,
+        status = EXCLUDED.status,
+        updated_at = NOW()
+    `, [
+      stream.id,
+      stream.name,
+      stream.input_type || 'hls',
+      stream.input_url,
+      stream.category || null,
+      stream.bouquet || null,
+      stream.channel_number || null,
+      stream.output_formats || ['hls'],
+      stream.bitrate || 4500,
+      stream.resolution || '1920x1080',
+      stream.webvtt_enabled || false,
+      stream.webvtt_url || null,
+      stream.webvtt_language || 'hr',
+      stream.webvtt_label || null,
+      stream.dvr_enabled || false,
+      stream.dvr_duration || 24,
+      stream.abr_enabled || false,
+      stream.stream_icon || null,
+      stream.epg_channel_id || null,
+      stream.status || 'inactive',
+      stream.viewers || 0
+    ]);
+    
+    // Refresh cache after sync
+    await prewarmCache();
+    
+    console.log(`[Sync] Synced stream: ${stream.name}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Sync] Stream error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/streams/sync/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM streams WHERE id = $1', [req.params.id]);
+    
+    // Refresh cache after delete
+    await prewarmCache();
+    
+    console.log(`[Sync] Deleted stream: ${req.params.id}`);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== STREAMING USERS ROUTES ====================
 
 app.get('/api/streaming-users', authenticateToken, async (req, res) => {
