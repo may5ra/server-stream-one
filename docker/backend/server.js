@@ -1215,7 +1215,7 @@ app.get('/proxy/*', async (req, res) => {
     }
     
     // Cache for storing resolved base URLs after redirects
-    // Key: streamName, Value: { baseUrl, timestamp }
+    // Key: streamName or streamName:pathPrefix, Value: { baseUrl, timestamp }
     if (!global.streamBaseUrlCache) {
       global.streamBaseUrlCache = new Map();
     }
@@ -1224,15 +1224,56 @@ app.get('/proxy/*', async (req, res) => {
     let targetUrl;
     const inputUrl = stream.input_url.trim();
     let effectiveFilePath = filePath;
-    
-    // Check if we have a cached base URL for this stream (from previous redirect resolution)
-    const cachedBase = global.streamBaseUrlCache.get(decodedStreamName);
     const cacheMaxAge = 5 * 60 * 1000; // 5 minutes cache
     
+    // Get path prefix for caching (e.g., "16/Video-5M" from "16/Video-5M/manifest.m3u8")
+    const getPathPrefix = (fp) => {
+      const lastSlash = fp.lastIndexOf('/');
+      return lastSlash > 0 ? fp.substring(0, lastSlash) : '';
+    };
+    
+    // Get cache key based on stream and path prefix
+    const pathPrefix = getPathPrefix(filePath);
+    const cacheKey = pathPrefix ? `${decodedStreamName}:${pathPrefix}` : decodedStreamName;
+    const masterCacheKey = decodedStreamName;
+    
+    // Check if we have a cached base URL for this specific path or the master
+    const cachedBase = global.streamBaseUrlCache.get(cacheKey);
+    const masterCachedBase = global.streamBaseUrlCache.get(masterCacheKey);
+    
+    // For .ts segments without path prefix, try to find any cached path that matches
+    const isSegment = filePath.endsWith('.ts') || filePath.endsWith('.m4s');
+    
     if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts') {
-      // Use cached base URL for variant playlists and segments
-      targetUrl = cachedBase.baseUrl + filePath;
-      console.log(`[Proxy] Using cached base URL: ${targetUrl}`);
+      // Use cached base URL for this specific path
+      const fileName = filePath.includes('/') ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
+      targetUrl = cachedBase.baseUrl + fileName;
+      if (!isSegment) console.log(`[Proxy] Using cached base URL for path: ${targetUrl}`);
+    } else if (isSegment && !filePath.includes('/')) {
+      // Segment without directory - find most recent matching cache
+      let foundCache = null;
+      let foundKey = null;
+      for (const [key, value] of global.streamBaseUrlCache.entries()) {
+        if (key.startsWith(decodedStreamName + ':') && (Date.now() - value.timestamp) < cacheMaxAge) {
+          if (!foundCache || value.timestamp > foundCache.timestamp) {
+            foundCache = value;
+            foundKey = key;
+          }
+        }
+      }
+      if (foundCache) {
+        targetUrl = foundCache.baseUrl + filePath;
+        console.log(`[Proxy] Using recent cached base for segment: ${targetUrl}`);
+      } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
+        targetUrl = masterCachedBase.baseUrl + filePath;
+        console.log(`[Proxy] Using master cached base for segment: ${targetUrl}`);
+      } else {
+        // Fallback to constructing from input_url
+        const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd') 
+          ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
+          : inputUrl.endsWith('/') ? inputUrl : inputUrl + '/';
+        targetUrl = baseUrl + filePath;
+      }
     } else if (filePath === 'index.m3u8' || filePath === 'index.ts') {
       // For main playlist requests, use input_url and resolve redirects
       if (inputUrl.endsWith('.m3u8')) {
@@ -1251,9 +1292,9 @@ app.get('/proxy/*', async (req, res) => {
       } else {
         targetUrl = `${inputUrl}/manifest.mpd`;
       }
-    } else if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge) {
-      // Use cached base for any other file type
-      targetUrl = cachedBase.baseUrl + filePath;
+    } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
+      // Use master cached base for any other file type
+      targetUrl = masterCachedBase.baseUrl + filePath;
     } else if (inputUrl.endsWith('.mpd')) {
       const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
       targetUrl = `${baseUrl}${filePath}`;
@@ -1327,14 +1368,17 @@ app.get('/proxy/*', async (req, res) => {
         break;
       }
       
-      // After following redirects, cache the base URL for this stream
-      if (redirectCount > 0 && (filePath === 'index.m3u8' || filePath === 'index.ts')) {
+      // After following redirects, cache the base URL for this stream/path
+      if (redirectCount > 0 || (effectiveFilePath.endsWith('.m3u8') && filePath !== 'index.m3u8')) {
         const resolvedBaseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
-        global.streamBaseUrlCache.set(decodedStreamName, {
+        // Cache with path prefix for sub-manifests
+        const pathPrefix = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
+        const cacheKey = pathPrefix ? `${decodedStreamName}:${pathPrefix}` : decodedStreamName;
+        global.streamBaseUrlCache.set(cacheKey, {
           baseUrl: resolvedBaseUrl,
           timestamp: Date.now()
         });
-        console.log(`[Proxy] Cached base URL for ${decodedStreamName}: ${resolvedBaseUrl}`);
+        console.log(`[Proxy] Cached base URL for ${cacheKey}: ${resolvedBaseUrl}`);
       }
       
       if (redirectCount >= maxRedirects) {
