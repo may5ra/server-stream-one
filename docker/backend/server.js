@@ -1279,9 +1279,9 @@ app.get('/proxy/*', async (req, res) => {
       targetUrl = masterCachedBase.baseUrl + filePath;
       console.log(`[Proxy] Sub-manifest using master session: ${targetUrl}`);
     } else if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts' && !filePath.endsWith('.m3u8')) {
-      // Use cached base URL for non-manifest paths (segments with directory prefix)
-      const fileName = filePath.includes('/') ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
-      targetUrl = cachedBase.baseUrl + fileName;
+      // Use cached base URL for non-manifest paths - keep FULL path for DASH segments!
+      // DASH uses directory structure like 16/Video-1_5M/segment.cmfv
+      targetUrl = cachedBase.baseUrl + filePath;
       console.log(`[Proxy] Using cached base URL for path: ${targetUrl}`);
     } else if (filePath === 'index.m3u8' || filePath === 'index.ts') {
       // For main playlist requests, use input_url and resolve redirects
@@ -1339,12 +1339,14 @@ app.get('/proxy/*', async (req, res) => {
     try {
       let currentUrl = targetUrl;
       let response;
+      let redirectCount = 0;
+      const maxRedirects = 5;
       
       // For SEGMENTS with cached session URL, skip redirect handling - go direct!
       if (isSegment && currentUrl.includes('/session/')) {
         console.log(`[Proxy] Direct segment fetch (cached session): ${currentUrl}`);
         response = await fetch(currentUrl, {
-          redirect: 'follow', // Let fetch handle redirects automatically
+          redirect: 'follow',
           headers: {
             'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
             'Accept': '*/*',
@@ -1354,9 +1356,6 @@ app.get('/proxy/*', async (req, res) => {
         });
       } else {
         // For manifests and non-cached segments, manually follow redirects
-        let redirectCount = 0;
-        const maxRedirects = 5;
-        
         while (redirectCount < maxRedirects) {
           response = await fetch(currentUrl, {
             redirect: 'manual',
