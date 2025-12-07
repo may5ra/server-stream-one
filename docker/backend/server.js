@@ -1157,11 +1157,11 @@ app.get('/proxy/*', async (req, res) => {
       setCachedStream(decodedStreamName, stream);
     }
     
-    // Check if stream is active (not stopped/inactive)
-    if (stream.status !== 'live') {
-      console.log(`[Proxy] Stream is not active: ${streamName}, status: ${stream.status}`);
-      return res.status(503).json({ error: 'Stream is currently offline' });
-    }
+    // NOTE: Stream status check removed from proxy
+    // Status is controlled via Xtream API - if stream is not 'live', 
+    // it won't appear in player's channel list (get_live_streams returns only status='live')
+    // This allows direct URL access even when stream is "inactive" in panel
+    console.log(`[Proxy] Stream found: ${streamName}, status: ${stream.status}`);
     
     if (!stream.input_url) {
       return res.status(400).json({ error: 'Stream has no source URL' });
