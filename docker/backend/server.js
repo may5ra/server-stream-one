@@ -1220,11 +1220,17 @@ app.get('/proxy/*', async (req, res) => {
       global.streamBaseUrlCache = new Map();
     }
     
+    // Keep-alive agent for faster connections
+    if (!global.httpAgent) {
+      const http = require('http');
+      global.httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100, timeout: 3000 });
+    }
+    
     // Construct target URL
     let targetUrl;
     const inputUrl = stream.input_url.trim();
     let effectiveFilePath = filePath;
-    const cacheMaxAge = 5 * 60 * 1000; // 5 minutes cache
+    const cacheMaxAge = 10 * 60 * 1000; // 10 minutes cache (longer = faster startup)
     
     // Get path prefix for caching (e.g., "16/Video-5M" from "16/Video-5M/manifest.m3u8")
     const getPathPrefix = (fp) => {
@@ -1256,17 +1262,16 @@ app.get('/proxy/*', async (req, res) => {
       }
       if (foundCache) {
         targetUrl = foundCache.baseUrl + filePath;
-        console.log(`[Proxy] Segment using sub-manifest cache (${foundKey}): ${targetUrl}`);
+        // Silent for segments - faster
       } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
         targetUrl = masterCachedBase.baseUrl + filePath;
-        console.log(`[Proxy] Segment using master cache: ${targetUrl}`);
       } else {
         // Fallback to constructing from input_url
         const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd') 
           ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
           : inputUrl.endsWith('/') ? inputUrl : inputUrl + '/';
         targetUrl = baseUrl + filePath;
-        console.log(`[Proxy] Segment using fallback: ${targetUrl}`);
+        console.log(`[Proxy] Segment fallback: ${targetUrl}`);
       }
     } else if (filePath.includes('/') && filePath.endsWith('.m3u8') && masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
       // For sub-manifests, use MASTER session (not old cached sub-manifest session)
@@ -1326,9 +1331,9 @@ app.get('/proxy/*', async (req, res) => {
       return null;
     };
     
-    // Fetch with timeout for faster failure - reduced for quicker startup
+    // Fetch with aggressive timeout for instant startup
     const controller = new AbortController();
-    const timeoutMs = isSegment ? 8000 : 5000; // 5s for manifests, 8s for segments
+    const timeoutMs = isSegment ? 3000 : 2000; // 2s for manifests, 3s for segments
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     
     try {
@@ -1339,12 +1344,12 @@ app.get('/proxy/*', async (req, res) => {
       
       // Manually follow redirects to handle 302 properly
       while (redirectCount < maxRedirects) {
-        console.log(`[Proxy] Fetching: ${currentUrl}`);
         response = await fetch(currentUrl, {
           redirect: 'manual', // Handle redirects manually
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
             'Accept': '*/*',
+            'Connection': 'keep-alive',
           },
           signal: controller.signal
         });
