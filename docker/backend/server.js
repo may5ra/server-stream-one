@@ -1230,7 +1230,7 @@ app.get('/proxy/*', async (req, res) => {
     let targetUrl;
     const inputUrl = stream.input_url.trim();
     let effectiveFilePath = filePath;
-    const cacheMaxAge = 10 * 60 * 1000; // 10 minutes cache (longer = faster startup)
+    const cacheMaxAge = 2 * 60 * 1000; // 2 minutes cache - sessions expire fast!
     
     // Get path prefix for caching (e.g., "16/Video-5M" from "16/Video-5M/manifest.m3u8")
     const getPathPrefix = (fp) => {
@@ -1446,6 +1446,30 @@ app.get('/proxy/*', async (req, res) => {
       }
       
       clearTimeout(timeout);
+      
+      // Handle 404 by clearing cache and retrying with fresh session
+      if (response.status === 404) {
+        // Check if we used a cached URL - if so, clear cache and retry
+        const hadCache = global.streamBaseUrlCache.has(cacheKey) || global.streamBaseUrlCache.has(masterCacheKey);
+        if (hadCache) {
+          console.log(`[Proxy] Got 404, clearing cache for ${decodedStreamName} and retrying...`);
+          
+          // Clear all caches for this stream
+          const keysToDelete = [];
+          for (const key of global.streamBaseUrlCache.keys()) {
+            if (key === decodedStreamName || key.startsWith(decodedStreamName + ':')) {
+              keysToDelete.push(key);
+            }
+          }
+          keysToDelete.forEach(k => global.streamBaseUrlCache.delete(k));
+          
+          // Redirect to master manifest to get new session
+          // The player will re-request with fresh URLs
+          console.log(`[Proxy] Cache cleared, client should retry`);
+        }
+        console.error(`[Proxy] Upstream error: ${response.status} - ${currentUrl}`);
+        return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+      }
       
       if (!response.ok) {
         console.error(`[Proxy] Upstream error: ${response.status}`);
