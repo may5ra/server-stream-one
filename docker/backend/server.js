@@ -20,7 +20,7 @@ const pool = new Pool({
 // In-memory cache for fast stream/user lookups (reduces DB queries from 5 to 0 for cached requests)
 const streamCache = new Map(); // name -> {input_url, cachedAt}
 const userCache = new Map(); // username -> {user, cachedAt}
-const CACHE_TTL = 60000; // 60 seconds cache
+const CACHE_TTL = 10000; // 10 seconds cache - short TTL for quick status updates
 
 function getCachedStream(name) {
   const cached = streamCache.get(name);
@@ -34,6 +34,16 @@ function setCachedStream(name, data) {
   streamCache.set(name, { data, cachedAt: Date.now() });
 }
 
+function invalidateStreamCache(name) {
+  streamCache.delete(name);
+  console.log(`[Cache] Invalidated stream cache: ${name}`);
+}
+
+function invalidateAllStreamCache() {
+  streamCache.clear();
+  console.log('[Cache] Invalidated all stream cache');
+}
+
 function getCachedUser(username) {
   const cached = userCache.get(username);
   if (cached && Date.now() - cached.cachedAt < CACHE_TTL) {
@@ -44,6 +54,10 @@ function getCachedUser(username) {
 
 function setCachedUser(username, data) {
   userCache.set(username, { data, cachedAt: Date.now() });
+}
+
+function invalidateUserCache(username) {
+  userCache.delete(username);
 }
 
 // Clear expired cache entries every 5 minutes
@@ -365,10 +379,10 @@ app.post('/api/streams/sync-one', async (req, res) => {
       stream.viewers || 0
     ]);
     
-    // Refresh cache after sync
-    await prewarmCache();
+    // Invalidate cache for this stream immediately
+    invalidateStreamCache(stream.name);
     
-    console.log(`[Sync] Synced stream: ${stream.name}`);
+    console.log(`[Sync] Synced stream: ${stream.name}, status: ${stream.status || 'inactive'}`);
     res.json({ success: true });
   } catch (error) {
     console.error('[Sync] Stream error:', error);
@@ -378,10 +392,15 @@ app.post('/api/streams/sync-one', async (req, res) => {
 
 app.delete('/api/streams/sync/:id', async (req, res) => {
   try {
+    // Get stream name before delete for cache invalidation
+    const streamResult = await pool.query('SELECT name FROM streams WHERE id = $1', [req.params.id]);
+    
     await pool.query('DELETE FROM streams WHERE id = $1', [req.params.id]);
     
-    // Refresh cache after delete
-    await prewarmCache();
+    // Invalidate cache
+    if (streamResult.rows.length > 0) {
+      invalidateStreamCache(streamResult.rows[0].name);
+    }
     
     console.log(`[Sync] Deleted stream: ${req.params.id}`);
     res.json({ success: true });

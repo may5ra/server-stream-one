@@ -194,9 +194,8 @@ export const useStreams = () => {
     if (!stream) return;
 
     const newStatus = stream.status === "live" ? "inactive" : "live";
-    const newViewers = newStatus === "live" ? Math.floor(Math.random() * 100) : 0;
 
-    await updateStream(id, { status: newStatus, viewers: newViewers });
+    await updateStream(id, { status: newStatus });
   };
 
   const syncAllStreams = async () => {
