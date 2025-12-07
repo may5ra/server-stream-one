@@ -8,6 +8,86 @@ const corsHeaders = {
 // In-memory active connections tracking (per edge function instance)
 const activeConnections = new Map<string, Map<string, { ip: string; stream: string; lastActivity: number }>>();
 
+// Helper to detect stream type from URL or path
+function getStreamType(url: string, path: string): 'hls' | 'dash' | 'unknown' {
+  const lowerUrl = url.toLowerCase();
+  const lowerPath = path.toLowerCase();
+  
+  if (lowerUrl.endsWith('.mpd') || lowerPath.endsWith('.mpd')) {
+    return 'dash';
+  }
+  if (lowerUrl.endsWith('.m3u8') || lowerPath.endsWith('.m3u8')) {
+    return 'hls';
+  }
+  if (lowerPath.endsWith('.m4s') || lowerPath.endsWith('.mp4') || lowerPath.includes('dash')) {
+    return 'dash';
+  }
+  if (lowerPath.endsWith('.ts')) {
+    return 'hls';
+  }
+  return 'unknown';
+}
+
+// Get content type based on file extension
+function getContentType(filePath: string, streamType: 'hls' | 'dash' | 'unknown'): string {
+  const lowerPath = filePath.toLowerCase();
+  
+  // DASH types
+  if (lowerPath.endsWith('.mpd')) {
+    return 'application/dash+xml';
+  }
+  if (lowerPath.endsWith('.m4s')) {
+    return 'video/iso.segment';
+  }
+  if (lowerPath.endsWith('.m4a')) {
+    return 'audio/mp4';
+  }
+  if (lowerPath.endsWith('.m4v') || lowerPath.endsWith('.mp4')) {
+    return 'video/mp4';
+  }
+  
+  // HLS types
+  if (lowerPath.endsWith('.m3u8')) {
+    return 'application/vnd.apple.mpegurl';
+  }
+  if (lowerPath.endsWith('.ts')) {
+    return 'video/mp2t';
+  }
+  
+  // Audio types
+  if (lowerPath.endsWith('.aac')) {
+    return 'audio/aac';
+  }
+  if (lowerPath.endsWith('.mp3')) {
+    return 'audio/mpeg';
+  }
+  
+  // Subtitles
+  if (lowerPath.endsWith('.vtt')) {
+    return 'text/vtt';
+  }
+  if (lowerPath.endsWith('.srt')) {
+    return 'text/plain';
+  }
+  
+  return 'application/octet-stream';
+}
+
+// Get default file for stream type
+function getDefaultFile(inputUrl: string): string {
+  const lowerUrl = inputUrl.toLowerCase();
+  if (lowerUrl.endsWith('.mpd')) {
+    return '';
+  }
+  if (lowerUrl.endsWith('.m3u8')) {
+    return '';
+  }
+  if (lowerUrl.includes('.mpd') || lowerUrl.includes('dash')) {
+    return 'manifest.mpd';
+  }
+  return 'index.m3u8';
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -61,7 +141,7 @@ Deno.serve(async (req) => {
         username = possibleUsername;
         password = possiblePassword;
         streamName = decodeURIComponent(pathParts[2]);
-        filePath = pathParts.slice(3).join('/') || 'index.m3u8';
+        filePath = pathParts.slice(3).join('/') || '';
         
         console.log(`[Proxy] Authenticated request: ${username}/${streamName}/${filePath} from ${clientIp}`);
         
@@ -135,20 +215,20 @@ Deno.serve(async (req) => {
       } else {
         // Legacy format (no auth found)
         streamName = decodeURIComponent(pathParts[0]);
-        filePath = pathParts.slice(1).join('/') || 'index.m3u8';
+        filePath = pathParts.slice(1).join('/') || '';
         console.log(`[Proxy] Legacy request (no auth): ${streamName}/${filePath}`);
       }
     } else {
       // Legacy format: streamName/filePath
       streamName = decodeURIComponent(pathParts[0]);
-      filePath = pathParts.slice(1).join('/') || 'index.m3u8';
+      filePath = pathParts.slice(1).join('/') || '';
       console.log(`[Proxy] Legacy request: ${streamName}/${filePath}`);
     }
 
     // Look up stream from database
     const { data: stream, error: dbError } = await supabase
       .from('streams')
-      .select('input_url, name, status')
+      .select('input_url, name, status, input_type')
       .eq('name', streamName)
       .maybeSingle()
 
@@ -176,61 +256,72 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Construct the target URL
-    let targetUrl: string
-    const inputUrl = stream.input_url.trim()
+    const inputUrl = stream.input_url.trim();
+    const streamType = getStreamType(inputUrl, filePath);
     
-    if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${filePath}`
-    } else if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.ts')) {
-      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
-      targetUrl = `${baseUrl}${filePath}`
+    // If no file path specified, use default based on input URL
+    if (!filePath) {
+      filePath = getDefaultFile(inputUrl);
+    }
+    
+    console.log(`[Proxy] Stream type: ${streamType}, input_type: ${stream.input_type}`);
+
+    // Construct the target URL
+    let targetUrl: string;
+    
+    if (inputUrl.endsWith('.mpd') || inputUrl.endsWith('.m3u8')) {
+      // Input URL is the manifest itself
+      if (!filePath || filePath === getDefaultFile(inputUrl)) {
+        targetUrl = inputUrl;
+      } else {
+        const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+        targetUrl = `${baseUrl}${filePath}`;
+      }
+    } else if (inputUrl.endsWith('/')) {
+      targetUrl = `${inputUrl}${filePath}`;
+    } else if (inputUrl.endsWith('.ts') || inputUrl.endsWith('.m4s')) {
+      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
+      targetUrl = `${baseUrl}${filePath}`;
     } else {
-      targetUrl = `${inputUrl}/${filePath}`
+      targetUrl = filePath ? `${inputUrl}/${filePath}` : inputUrl;
     }
 
-    console.log(`[Proxy] Fetching: ${targetUrl}`)
+    console.log(`[Proxy] Fetching: ${targetUrl}`);
 
     // Fetch from the original source
     const response = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': '*/*',
+        'Accept-Encoding': 'identity', // Avoid compressed responses for easier processing
       }
-    })
+    });
 
     if (!response.ok) {
-      console.error(`[Proxy] Upstream error: ${response.status} ${response.statusText}`)
+      console.error(`[Proxy] Upstream error: ${response.status} ${response.statusText}`);
       return new Response(JSON.stringify({ error: `Upstream error: ${response.status}` }), {
         status: response.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
+      });
     }
 
     // Get content type
-    let contentType = response.headers.get('content-type') || 'application/octet-stream'
-    
-    if (filePath.endsWith('.m3u8')) {
-      contentType = 'application/vnd.apple.mpegurl'
-    } else if (filePath.endsWith('.ts')) {
-      contentType = 'video/mp2t'
-    }
+    const contentType = getContentType(filePath || targetUrl, streamType);
+    console.log(`[Proxy] Content-Type: ${contentType}`);
 
     // Get the response body
-    const body = await response.arrayBuffer()
+    const body = await response.arrayBuffer();
 
-    // For m3u8 files, we may need to rewrite URLs
-    if (filePath.endsWith('.m3u8')) {
-      const text = new TextDecoder().decode(body)
-      
-      return new Response(text, {
-        status: 200,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': contentType,
-          'Cache-Control': 'no-cache',
-        }
-      })
+    // Determine cache policy based on file type
+    let cacheControl = 'no-cache';
+    const lowerPath = (filePath || targetUrl).toLowerCase();
+    
+    if (lowerPath.endsWith('.ts') || lowerPath.endsWith('.m4s') || lowerPath.endsWith('.mp4')) {
+      // Segments can be cached longer
+      cacheControl = 'max-age=86400';
+    } else if (lowerPath.endsWith('.mpd') || lowerPath.endsWith('.m3u8')) {
+      // Manifests should not be cached
+      cacheControl = 'no-cache, no-store, must-revalidate';
     }
 
     // Return the proxied content
@@ -239,16 +330,16 @@ Deno.serve(async (req) => {
       headers: {
         ...corsHeaders,
         'Content-Type': contentType,
-        'Cache-Control': filePath.endsWith('.ts') ? 'max-age=86400' : 'no-cache',
+        'Cache-Control': cacheControl,
       }
-    })
+    });
 
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[Proxy] Error:', errorMessage)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[Proxy] Error:', errorMessage);
     return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    })
+    });
   }
-})
+});
