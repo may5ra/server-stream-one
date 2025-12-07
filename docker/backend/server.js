@@ -1277,14 +1277,52 @@ app.get('/proxy/*', async (req, res) => {
     const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
     
     try {
-      let response = await fetch(targetUrl, {
-        redirect: 'follow',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': '*/*',
-        },
-        signal: controller.signal
-      });
+      let currentUrl = targetUrl;
+      let response;
+      let redirectCount = 0;
+      const maxRedirects = 5;
+      
+      // Manually follow redirects to handle 302 properly
+      while (redirectCount < maxRedirects) {
+        console.log(`[Proxy] Fetching: ${currentUrl}`);
+        response = await fetch(currentUrl, {
+          redirect: 'manual', // Handle redirects manually
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+          },
+          signal: controller.signal
+        });
+        
+        // Check for redirect status codes (301, 302, 303, 307, 308)
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          const location = response.headers.get('location');
+          if (location) {
+            // Handle relative URLs
+            if (location.startsWith('/')) {
+              const urlObj = new URL(currentUrl);
+              currentUrl = `${urlObj.protocol}//${urlObj.host}${location}`;
+            } else if (!location.startsWith('http')) {
+              const baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
+              currentUrl = baseUrl + location;
+            } else {
+              currentUrl = location;
+            }
+            console.log(`[Proxy] Following redirect to: ${currentUrl}`);
+            redirectCount++;
+            continue;
+          }
+        }
+        
+        // Not a redirect, break the loop
+        break;
+      }
+      
+      if (redirectCount >= maxRedirects) {
+        console.error(`[Proxy] Too many redirects`);
+        clearTimeout(timeout);
+        return res.status(502).json({ error: 'Too many redirects' });
+      }
       
       // Check if response is HTML (might be a redirect page)
       const responseContentType = response.headers.get('content-type') || '';
