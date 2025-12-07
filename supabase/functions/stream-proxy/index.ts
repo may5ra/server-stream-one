@@ -298,8 +298,9 @@ Deno.serve(async (req) => {
 
     console.log(`[Proxy] Fetching: ${targetUrl}`);
 
-    // Fetch from the original source
+    // Fetch from the original source - follow redirects
     const response = await fetch(targetUrl, {
+      redirect: 'follow', // IMPORTANT: Follow HTTP redirects (302, 301, etc.)
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': '*/*',
