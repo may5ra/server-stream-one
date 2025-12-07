@@ -206,6 +206,7 @@ export const useStreams = () => {
     }
     
     try {
+      // First sync all streams
       const { data, error } = await supabase.functions.invoke('backend-sync', {
         body: { 
           action: 'sync-streams', 
@@ -220,7 +221,17 @@ export const useStreams = () => {
         throw new Error(data.error);
       }
       
-      toast({ title: "Uspješno", description: `Sinkronizirano ${streams.length} streamova na ${backendUrl}` });
+      // Then cleanup orphan streams (streams in Docker but not in Supabase)
+      const validIds = streams.map(s => s.id);
+      await supabase.functions.invoke('backend-sync', {
+        body: { 
+          action: 'cleanup-streams', 
+          backendUrl, 
+          data: { validIds } 
+        }
+      });
+      
+      toast({ title: "Uspješno", description: `Sinkronizirano ${streams.length} streamova i očišćeni stari` });
       return true;
     } catch (err) {
       console.error(`[Sync] Failed to sync all streams`, err);

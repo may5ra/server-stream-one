@@ -409,6 +409,53 @@ app.delete('/api/streams/sync/:id', async (req, res) => {
   }
 });
 
+// Delete stream by name (fallback for sync issues)
+app.delete('/api/streams/sync-by-name/:name', async (req, res) => {
+  try {
+    const name = decodeURIComponent(req.params.name);
+    await pool.query('DELETE FROM streams WHERE name = $1', [name]);
+    invalidateStreamCache(name);
+    console.log(`[Sync] Deleted stream by name: ${name}`);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clean up streams not in the provided list (full sync)
+app.post('/api/streams/cleanup', async (req, res) => {
+  try {
+    const { validIds } = req.body;
+    
+    if (!validIds || !Array.isArray(validIds)) {
+      return res.status(400).json({ error: 'validIds array required' });
+    }
+    
+    // Delete all streams NOT in the valid list
+    let deleted = 0;
+    if (validIds.length === 0) {
+      // Delete all streams
+      const result = await pool.query('DELETE FROM streams');
+      deleted = result.rowCount;
+    } else {
+      const result = await pool.query(
+        'DELETE FROM streams WHERE id != ALL($1::uuid[])',
+        [validIds]
+      );
+      deleted = result.rowCount;
+    }
+    
+    // Clear all stream cache
+    invalidateAllStreamCache();
+    
+    console.log(`[Sync] Cleanup deleted ${deleted} orphan streams`);
+    res.json({ success: true, deleted });
+  } catch (error) {
+    console.error('[Sync] Cleanup error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== STREAMING USERS ROUTES ====================
 
 app.get('/api/streaming-users', authenticateToken, async (req, res) => {
