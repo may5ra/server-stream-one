@@ -1462,21 +1462,39 @@ app.get('/proxy/*', async (req, res) => {
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', effectiveFilePath.endsWith('.ts') || effectiveFilePath.endsWith('.m4s') ? 'max-age=86400' : 'no-cache');
       
-      // For segments (.ts, .m4s), use STREAMING - don't buffer entire response!
+      // For segments (.ts, .m4s), use TRUE STREAMING - zero buffering!
       const isMediaSegment = effectiveFilePath.endsWith('.ts') || effectiveFilePath.endsWith('.m4s');
       
       if (isMediaSegment) {
-        // Stream response directly to client - much faster for video segments!
         const contentLength = response.headers.get('content-length');
         if (contentLength) {
           res.setHeader('Content-Length', contentLength);
         }
         
-        // Use Node.js streams for efficient piping
-        const { Readable } = require('stream');
-        const readable = Readable.fromWeb(response.body);
-        readable.pipe(res);
-        return; // Important: return early, piping handles the response
+        // Disable any Express/Node buffering
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders(); // Send headers immediately
+        
+        // Stream chunks directly as they arrive - ZERO buffering
+        const reader = response.body.getReader();
+        const pump = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                res.end();
+                break;
+              }
+              // Write chunk immediately and flush
+              res.write(Buffer.from(value));
+            }
+          } catch (err) {
+            console.error('[Proxy] Streaming error:', err.message);
+            res.end();
+          }
+        };
+        pump();
+        return;
       }
       
       // For manifests (.m3u8, .mpd), we need to buffer and rewrite URLs
