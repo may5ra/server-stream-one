@@ -1333,19 +1333,18 @@ app.get('/proxy/*', async (req, res) => {
     
     // Fetch with reasonable timeout - some sources are slower
     const controller = new AbortController();
-    const timeoutMs = isSegment ? 8000 : 10000; // 10s for manifests (redirects take time), 8s for segments
+    const timeoutMs = isSegment ? 30000 : 15000; // 30s for segments (large files), 15s for manifests
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     
     try {
       let currentUrl = targetUrl;
       let response;
-      let redirectCount = 0;
-      const maxRedirects = 5;
       
-      // Manually follow redirects to handle 302 properly
-      while (redirectCount < maxRedirects) {
+      // For SEGMENTS with cached session URL, skip redirect handling - go direct!
+      if (isSegment && currentUrl.includes('/session/')) {
+        console.log(`[Proxy] Direct segment fetch (cached session): ${currentUrl}`);
         response = await fetch(currentUrl, {
-          redirect: 'manual', // Handle redirects manually
+          redirect: 'follow', // Let fetch handle redirects automatically
           headers: {
             'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
             'Accept': '*/*',
@@ -1353,29 +1352,41 @@ app.get('/proxy/*', async (req, res) => {
           },
           signal: controller.signal
         });
+      } else {
+        // For manifests and non-cached segments, manually follow redirects
+        let redirectCount = 0;
+        const maxRedirects = 5;
         
-        // Check for redirect status codes (301, 302, 303, 307, 308)
-        if ([301, 302, 303, 307, 308].includes(response.status)) {
-          const location = response.headers.get('location');
-          if (location) {
-            // Handle relative URLs
-            if (location.startsWith('/')) {
-              const urlObj = new URL(currentUrl);
-              currentUrl = `${urlObj.protocol}//${urlObj.host}${location}`;
-            } else if (!location.startsWith('http')) {
-              const baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
-              currentUrl = baseUrl + location;
-            } else {
-              currentUrl = location;
+        while (redirectCount < maxRedirects) {
+          response = await fetch(currentUrl, {
+            redirect: 'manual',
+            headers: {
+              'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
+              'Accept': '*/*',
+              'Connection': 'keep-alive',
+            },
+            signal: controller.signal
+          });
+          
+          if ([301, 302, 303, 307, 308].includes(response.status)) {
+            const location = response.headers.get('location');
+            if (location) {
+              if (location.startsWith('/')) {
+                const urlObj = new URL(currentUrl);
+                currentUrl = `${urlObj.protocol}//${urlObj.host}${location}`;
+              } else if (!location.startsWith('http')) {
+                const baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
+                currentUrl = baseUrl + location;
+              } else {
+                currentUrl = location;
+              }
+              console.log(`[Proxy] Following redirect to: ${currentUrl}`);
+              redirectCount++;
+              continue;
             }
-            console.log(`[Proxy] Following redirect to: ${currentUrl}`);
-            redirectCount++;
-            continue;
           }
+          break;
         }
-        
-        // Not a redirect, break the loop
-        break;
       }
       
       // After following redirects, cache the base URL for this stream/path
