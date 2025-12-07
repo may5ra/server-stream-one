@@ -298,15 +298,54 @@ Deno.serve(async (req) => {
 
     console.log(`[Proxy] Fetching: ${targetUrl}`);
 
+    // Helper function to extract redirect URL from HTML
+    const extractRedirectUrl = (html: string): string | null => {
+      // Look for href="..." pattern in HTML redirect pages
+      const hrefMatch = html.match(/href=["']?([^"'\s>]+\.m3u8[^"'\s>]*)["']?/i);
+      if (hrefMatch) return hrefMatch[1];
+      
+      // Also try meta refresh pattern
+      const metaMatch = html.match(/content=["'][^"']*url=([^"'\s>]+)["']/i);
+      if (metaMatch) return metaMatch[1];
+      
+      return null;
+    };
+
     // Fetch from the original source - follow redirects
-    const response = await fetch(targetUrl, {
+    let response = await fetch(targetUrl, {
       redirect: 'follow', // IMPORTANT: Follow HTTP redirects (302, 301, etc.)
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': '*/*',
-        'Accept-Encoding': 'identity', // Avoid compressed responses for easier processing
+        'Accept-Encoding': 'identity',
       }
     });
+
+    // Check if response is HTML (might be a redirect page)
+    const responseContentType = response.headers.get('content-type') || '';
+    if (response.ok && responseContentType.includes('text/html')) {
+      const html = await response.text();
+      const redirectUrl = extractRedirectUrl(html);
+      
+      if (redirectUrl) {
+        console.log(`[Proxy] Found HTML redirect, following to: ${redirectUrl}`);
+        // Follow the redirect URL
+        response = await fetch(redirectUrl, {
+          redirect: 'follow',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity',
+          }
+        });
+      } else {
+        console.error(`[Proxy] Got HTML response but no redirect URL found`);
+        return new Response(JSON.stringify({ error: 'Invalid upstream response' }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
 
     if (!response.ok) {
       console.error(`[Proxy] Upstream error: ${response.status} ${response.statusText}`);

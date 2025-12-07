@@ -1255,19 +1255,57 @@ app.get('/proxy/*', async (req, res) => {
       targetUrl = `${inputUrl}/${effectiveFilePath}`;
     }
     
+    // Helper function to extract redirect URL from HTML
+    const extractRedirectUrl = (html) => {
+      // Look for href="..." pattern in HTML redirect pages
+      const hrefMatch = html.match(/href=["']?([^"'\s>]+\.m3u8[^"'\s>]*)["']?/i);
+      if (hrefMatch) return hrefMatch[1];
+      
+      // Also try meta refresh pattern
+      const metaMatch = html.match(/content=["'][^"']*url=([^"'\s>]+)["']/i);
+      if (metaMatch) return metaMatch[1];
+      
+      return null;
+    };
+    
     // Fetch with timeout for faster failure
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
     
     try {
-      const response = await fetch(targetUrl, {
-        redirect: 'follow', // IMPORTANT: Follow HTTP redirects (302, 301, etc.)
+      let response = await fetch(targetUrl, {
+        redirect: 'follow',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
         },
         signal: controller.signal
       });
+      
+      // Check if response is HTML (might be a redirect page)
+      const responseContentType = response.headers.get('content-type') || '';
+      if (response.ok && responseContentType.includes('text/html')) {
+        const html = await response.text();
+        const redirectUrl = extractRedirectUrl(html);
+        
+        if (redirectUrl) {
+          console.log(`[Proxy] Found HTML redirect, following to: ${redirectUrl}`);
+          // Follow the redirect URL
+          response = await fetch(redirectUrl, {
+            redirect: 'follow',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': '*/*',
+            },
+            signal: controller.signal
+          });
+        } else {
+          console.error(`[Proxy] Got HTML response but no redirect URL found`);
+          clearTimeout(timeout);
+          return res.status(502).json({ error: 'Invalid upstream response (HTML without redirect)' });
+        }
+      }
+      
       clearTimeout(timeout);
       
       if (!response.ok) {
