@@ -22,6 +22,14 @@ const streamCache = new Map(); // name -> {input_url, cachedAt}
 const userCache = new Map(); // username -> {user, cachedAt}
 const CACHE_TTL = 10000; // 10 seconds cache - short TTL for quick status updates
 
+// Helper function for getting default manifest filename
+function getDefaultFile(inputUrl) {
+  if (inputUrl.includes('.mpd') || inputUrl.toLowerCase().includes('dash')) {
+    return 'manifest.mpd';
+  }
+  return 'index.m3u8';
+}
+
 function getCachedStream(name) {
   const cached = streamCache.get(name);
   if (cached && Date.now() - cached.cachedAt < CACHE_TTL) {
@@ -1457,37 +1465,97 @@ app.get('/proxy/*', async (req, res) => {
       
       clearTimeout(timeout);
       
-      // Handle 404 by clearing cache and retrying with fresh session
-      // BUT: Don't clear cache for non-critical files like subtitles (.webvtt, .srt, .vtt)
+      // Handle 404 - SMART CACHE HANDLING
+      // Key insight: Only MANIFEST files should trigger cache clear + retry
+      // Segments and subtitles should just fail gracefully - the player will request new manifest
       if (response.status === 404) {
         const isSubtitle = filePath.endsWith('.webvtt') || filePath.endsWith('.vtt') || filePath.endsWith('.srt');
+        const isSegment = filePath.endsWith('.ts') || filePath.endsWith('.m4s') || filePath.endsWith('.m4a') || filePath.endsWith('.m4v') || filePath.endsWith('.aac');
+        const isManifest = filePath.endsWith('.m3u8') || filePath.endsWith('.mpd') || filePath === 'index.ts' || filePath === 'manifest.mpd';
         
         if (isSubtitle) {
-          // Subtitles are non-critical - just return 404 without clearing cache
-          console.log(`[Proxy] Subtitle 404 (ignoring, not clearing cache): ${currentUrl}`);
+          // Subtitles are completely non-critical - silent 404
+          console.log(`[Proxy] Subtitle 404 (non-critical): ${filePath}`);
           return res.status(404).send('');
         }
         
-        // Check if we used a cached URL - if so, clear cache and retry
-        const hadCache = global.streamBaseUrlCache.has(cacheKey) || global.streamBaseUrlCache.has(masterCacheKey);
-        if (hadCache) {
-          console.log(`[Proxy] Got 404, clearing cache for ${decodedStreamName} and retrying...`);
-          
-          // Clear all caches for this stream
-          const keysToDelete = [];
-          for (const key of global.streamBaseUrlCache.keys()) {
-            if (key === decodedStreamName || key.startsWith(decodedStreamName + ':')) {
-              keysToDelete.push(key);
+        if (isSegment) {
+          // Segments 404 = session expired, but DON'T clear cache here
+          // The player will naturally request a new manifest when segments fail
+          // Clearing cache here causes race conditions and stream breakage
+          console.log(`[Proxy] Segment 404 (session expired, letting player recover): ${filePath}`);
+          return res.status(404).send('');
+        }
+        
+        if (isManifest) {
+          // ONLY manifests should trigger cache clear and retry
+          const hadCache = global.streamBaseUrlCache.has(cacheKey) || global.streamBaseUrlCache.has(masterCacheKey) || global.streamBaseUrlCache.has(decodedStreamName);
+          if (hadCache) {
+            console.log(`[Proxy] Manifest 404, clearing cache for ${decodedStreamName} and retrying with fresh session...`);
+            
+            // Clear all caches for this stream
+            const keysToDelete = [];
+            for (const key of global.streamBaseUrlCache.keys()) {
+              if (key === decodedStreamName || key.startsWith(decodedStreamName + ':')) {
+                keysToDelete.push(key);
+              }
+            }
+            keysToDelete.forEach(k => global.streamBaseUrlCache.delete(k));
+            
+            // Now retry the request with fresh URL (no cache)
+            try {
+              const freshUrl = streamData.input_url.replace(/\/$/, '') + '/' + getDefaultFile(streamData.input_url);
+              console.log(`[Proxy] Retrying manifest with fresh URL: ${freshUrl}`);
+              
+              const retryResponse = await fetch(freshUrl, {
+                redirect: 'follow',
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                  'Accept': '*/*',
+                }
+              });
+              
+              if (retryResponse.ok) {
+                // Cache the new session URL
+                const finalUrl = retryResponse.url || freshUrl;
+                const newBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
+                global.streamBaseUrlCache.set(decodedStreamName, {
+                  baseUrl: newBaseUrl,
+                  timestamp: Date.now()
+                });
+                console.log(`[Proxy] Got fresh session, cached: ${newBaseUrl}`);
+                
+                // Return the fresh manifest
+                let manifestContent = await retryResponse.text();
+                
+                // Rewrite URLs in manifest
+                const lines = manifestContent.split('\n');
+                const rewrittenLines = lines.map(line => {
+                  const trimmed = line.trim();
+                  if (trimmed && !trimmed.startsWith('#')) {
+                    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+                      return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed.split('/').pop()}`;
+                    } else if (!trimmed.startsWith('/')) {
+                      return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed}`;
+                    }
+                  }
+                  return line;
+                });
+                
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+                res.setHeader('Cache-Control', 'no-cache');
+                return res.send(rewrittenLines.join('\n'));
+              }
+            } catch (retryErr) {
+              console.error(`[Proxy] Retry failed: ${retryErr.message}`);
             }
           }
-          keysToDelete.forEach(k => global.streamBaseUrlCache.delete(k));
-          
-          // Redirect to master manifest to get new session
-          // The player will re-request with fresh URLs
-          console.log(`[Proxy] Cache cleared, client should retry`);
         }
-        console.error(`[Proxy] Upstream error: ${response.status} - ${currentUrl}`);
-        return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+        
+        // Default 404 handling
+        console.error(`[Proxy] Upstream 404: ${currentUrl}`);
+        return res.status(404).json({ error: 'Not found' });
       }
       
       if (!response.ok) {
