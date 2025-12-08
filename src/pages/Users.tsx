@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Search, Circle, Edit, Trash2, Copy, Download, FileText, Loader2 } from "lucide-react";
+import { Plus, Search, Circle, Edit, Trash2, Copy, Download, FileText, Loader2, Package } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -7,10 +7,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useStreamingUsers, StreamingUser } from "@/hooks/useStreamingUsers";
 import { useSettings } from "@/hooks/useSettings";
 import { useStreams } from "@/hooks/useStreams";
+import { useBouquets } from "@/hooks/useBouquets";
 
 const statusConfig = {
   online: { color: "text-success", bg: "bg-success/20", label: "Online" },
@@ -22,6 +25,7 @@ const Users = () => {
   const { users, loading, addUser, updateUser, deleteUser } = useStreamingUsers();
   const { settings } = useSettings();
   const { streams } = useStreams();
+  const { bouquets } = useBouquets();
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -35,6 +39,7 @@ const Users = () => {
     password: "",
     max_connections: "1",
     expiry_date: "",
+    bouquets: [] as string[],
   });
 
   const filteredUsers = users.filter(user =>
@@ -65,8 +70,9 @@ const Users = () => {
         password: newUser.password,
         max_connections: parseInt(newUser.max_connections),
         expiry_date: newUser.expiry_date,
+        bouquets: newUser.bouquets,
       });
-      setNewUser({ username: "", password: "", max_connections: "1", expiry_date: "" });
+      setNewUser({ username: "", password: "", max_connections: "1", expiry_date: "", bouquets: [] });
       setIsAddOpen(false);
       toast({ title: "Success", description: "User created successfully" });
     } catch (error: any) {
@@ -86,7 +92,7 @@ const Users = () => {
   };
 
   const handleEditUser = (user: StreamingUser) => {
-    setEditingUser(user);
+    setEditingUser({ ...user, bouquets: user.bouquets || [] });
     setIsEditOpen(true);
   };
 
@@ -101,6 +107,7 @@ const Users = () => {
         max_connections: editingUser.max_connections,
         expiry_date: editingUser.expiry_date,
         status: editingUser.status,
+        bouquets: editingUser.bouquets || [],
       });
       setIsEditOpen(false);
       setEditingUser(null);
@@ -109,6 +116,25 @@ const Users = () => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const toggleBouquet = (bouquetName: string, isNew: boolean) => {
+    if (isNew) {
+      setNewUser((prev) => ({
+        ...prev,
+        bouquets: prev.bouquets.includes(bouquetName)
+          ? prev.bouquets.filter((b) => b !== bouquetName)
+          : [...prev.bouquets, bouquetName],
+      }));
+    } else if (editingUser) {
+      const currentBouquets = editingUser.bouquets || [];
+      setEditingUser({
+        ...editingUser,
+        bouquets: currentBouquets.includes(bouquetName)
+          ? currentBouquets.filter((b) => b !== bouquetName)
+          : [...currentBouquets, bouquetName],
+      });
     }
   };
 
@@ -263,6 +289,48 @@ const Users = () => {
                       onChange={(e) => setNewUser({ ...newUser, expiry_date: e.target.value })}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Package className="h-4 w-4" />
+                      Bouquets (prazno = svi)
+                    </Label>
+                    <div className="max-h-40 overflow-y-auto border border-input rounded-md p-3 space-y-2 bg-background/50">
+                      {bouquets.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nema dostupnih bouquet-a. Dodajte kategorije.</p>
+                      ) : (
+                        <>
+                          {["live", "vod", "series"].map((type) => {
+                            const typeBouquets = bouquets.filter((b) => b.type === type);
+                            if (typeBouquets.length === 0) return null;
+                            return (
+                              <div key={type} className="space-y-1">
+                                <p className="text-xs font-medium text-muted-foreground uppercase">
+                                  {type === "live" ? "📺 Live TV" : type === "vod" ? "🎬 Filmovi" : "📺 Serije"}
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {typeBouquets.map((b) => (
+                                    <Badge
+                                      key={`${type}-${b.name}`}
+                                      variant={newUser.bouquets.includes(b.name) ? "default" : "outline"}
+                                      className="cursor-pointer text-xs"
+                                      onClick={() => toggleBouquet(b.name, true)}
+                                    >
+                                      {b.name} ({b.count})
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                    {newUser.bouquets.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Odabrano: {newUser.bouquets.join(", ")}
+                      </p>
+                    )}
+                  </div>
                   <Button onClick={handleAddUser} className="w-full" variant="glow" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Create User
@@ -325,6 +393,48 @@ const Users = () => {
                         <option value="offline">Offline</option>
                         <option value="expired">Expired</option>
                       </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Package className="h-4 w-4" />
+                        Bouquets (prazno = svi)
+                      </Label>
+                      <div className="max-h-40 overflow-y-auto border border-input rounded-md p-3 space-y-2 bg-background/50">
+                        {bouquets.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">Nema dostupnih bouquet-a. Dodajte kategorije.</p>
+                        ) : (
+                          <>
+                            {["live", "vod", "series"].map((type) => {
+                              const typeBouquets = bouquets.filter((b) => b.type === type);
+                              if (typeBouquets.length === 0) return null;
+                              return (
+                                <div key={type} className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground uppercase">
+                                    {type === "live" ? "📺 Live TV" : type === "vod" ? "🎬 Filmovi" : "📺 Serije"}
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {typeBouquets.map((b) => (
+                                      <Badge
+                                        key={`${type}-${b.name}`}
+                                        variant={(editingUser.bouquets || []).includes(b.name) ? "default" : "outline"}
+                                        className="cursor-pointer text-xs"
+                                        onClick={() => toggleBouquet(b.name, false)}
+                                      >
+                                        {b.name} ({b.count})
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </div>
+                      {(editingUser.bouquets || []).length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Odabrano: {(editingUser.bouquets || []).join(", ")}
+                        </p>
+                      )}
                     </div>
                     <Button onClick={handleSaveEdit} className="w-full" variant="glow" disabled={isSubmitting}>
                       {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

@@ -434,6 +434,7 @@ export type Database = {
       }
       streaming_users: {
         Row: {
+          bouquets: string[] | null
           connections: number | null
           created_at: string
           expiry_date: string
@@ -447,6 +448,7 @@ export type Database = {
           username: string
         }
         Insert: {
+          bouquets?: string[] | null
           connections?: number | null
           created_at?: string
           expiry_date: string
@@ -460,6 +462,7 @@ export type Database = {
           username: string
         }
         Update: {
+          bouquets?: string[] | null
           connections?: number | null
           created_at?: string
           expiry_date?: string
