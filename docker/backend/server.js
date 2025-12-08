@@ -1364,9 +1364,21 @@ app.get('/proxy/*', async (req, res) => {
       const content = await response.text();
       
       // Build FULL URL base for proxy (not relative path!)
+      // Use origin header from request if available (includes protocol and port correctly)
+      const origin = req.get('origin');
       const serverDomain = process.env.SERVER_DOMAIN || req.get('host') || 'localhost';
       const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-      const proxyBase = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/`;
+      
+      // If SERVER_DOMAIN is set, use it with HTTP_PORT
+      let proxyBase;
+      if (process.env.SERVER_DOMAIN) {
+        const httpPort = process.env.HTTP_PORT || '80';
+        const portSuffix = (httpPort === '80' || httpPort === '443') ? '' : `:${httpPort}`;
+        proxyBase = `http://${process.env.SERVER_DOMAIN}${portSuffix}/proxy/${encodeURIComponent(streamName)}/`;
+      } else {
+        proxyBase = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/`;
+      }
+      console.log(`[Proxy] Using proxyBase: ${proxyBase}`);
       
       // Get base URL from final URL (after redirects)
       const finalUrl = response.url || targetUrl;
@@ -1603,9 +1615,18 @@ app.get('/:username/:password/:streamName', async (req, res) => {
     }
     
     // Proxy the manifest directly (don't redirect - some players don't follow redirects)
-    const serverDomain = process.env.SERVER_DOMAIN || req.get('host') || 'localhost';
-    const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-    const proxyBase = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/`;
+    // Use SERVER_DOMAIN with HTTP_PORT for proper URL construction
+    let proxyBase;
+    if (process.env.SERVER_DOMAIN) {
+      const httpPort = process.env.HTTP_PORT || '80';
+      const portSuffix = (httpPort === '80' || httpPort === '443') ? '' : `:${httpPort}`;
+      proxyBase = `http://${process.env.SERVER_DOMAIN}${portSuffix}/proxy/${encodeURIComponent(streamName)}/`;
+    } else {
+      const serverDomain = req.get('host') || 'localhost';
+      const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+      proxyBase = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/`;
+    }
+    console.log(`[Stream] Using proxyBase: ${proxyBase}`);
     
     const inputUrl = stream.input_url.trim();
     const targetUrl = inputUrl.endsWith('.m3u8') ? inputUrl : inputUrl.replace(/\/$/, '') + '/index.m3u8';

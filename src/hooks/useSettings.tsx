@@ -60,6 +60,8 @@ export const useSettings = () => {
     const isLovablePreview = window.location.hostname.includes('lovable.app') || 
                               window.location.hostname.includes('lovableproject.com');
     
+    console.log('[getStreamUrl] hostname:', window.location.hostname, 'isLovablePreview:', isLovablePreview, 'inputType:', inputType);
+    
     // For HLS or MPD/DASH streams, use proxy to bypass CORS
     if ((inputType === 'hls' || inputType === 'mpd') && inputUrl) {
       // Determine file extension based on input type
@@ -72,15 +74,19 @@ export const useSettings = () => {
         if (supabaseUrl) {
           // Add file extension so proxy knows what to fetch
           const url = `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}/${fileExt}`;
-          console.log('[getStreamUrl] Generated proxy URL:', url);
+          console.log('[getStreamUrl] Generated Lovable proxy URL:', url);
           return url;
+        } else {
+          console.warn('[getStreamUrl] VITE_SUPABASE_URL is not defined!');
         }
       }
       
       // For self-hosted Docker, use local proxy endpoint
       const domain = settings.serverDomain || window.location.host;
       const protocol = settings.enableSSL ? 'https' : (window.location.protocol === 'https:' ? 'https' : 'http');
-      return `${protocol}://${domain}/proxy/${encodedName}/${fileExt}`;
+      const dockerUrl = `${protocol}://${domain}/proxy/${encodedName}/${fileExt}`;
+      console.log('[getStreamUrl] Generated Docker proxy URL:', dockerUrl);
+      return dockerUrl;
     }
     
     // For RTMP/SRT/other streams, construct the output URL
