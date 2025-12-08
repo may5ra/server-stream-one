@@ -15,7 +15,8 @@ import {
   Calendar,
   Clapperboard,
   UserCog,
-  Wifi
+  Wifi,
+  Package
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,7 @@ const navItems: NavItem[] = [
   { icon: Tv, label: "Streams", href: "/streams" },
   { icon: Film, label: "VOD", href: "/vod" },
   { icon: Clapperboard, label: "Series", href: "/series" },
+  { icon: Package, label: "Bouquets", href: "/bouquets" },
   { icon: Calendar, label: "EPG", href: "/epg" },
   { icon: UserCog, label: "Resellers", href: "/resellers" },
   { icon: Server, label: "Servers", href: "/servers" },
