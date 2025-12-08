@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload } from "lucide-react";
+import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload, Sparkles } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -504,7 +504,15 @@ const Streams = () => {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Proxy Mode</Label>
+                      <div className="flex items-center gap-2">
+                        <Label>Proxy Mode</Label>
+                        {newStream.input_url && detectProxyMode(newStream.input_url) !== "direct" && (
+                          <Badge variant="outline" className="text-xs bg-warning/20 text-warning border-warning/30">
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            Auto-detected
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground mb-2">Način preusmjeravanja streama</p>
                       <Select 
                         value={newStream.proxy_mode || "direct"}
