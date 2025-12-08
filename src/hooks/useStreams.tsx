@@ -41,6 +41,7 @@ export interface Stream {
   channel_number: number | null;
   stream_icon: string | null;
   epg_channel_id: string | null;
+  proxy_mode: string | null;
 }
 
 // Call backend through Edge Function to avoid CORS/mixed-content issues

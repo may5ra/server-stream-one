@@ -498,6 +498,7 @@ export type Database = {
           input_url: string
           name: string
           output_formats: string[] | null
+          proxy_mode: string | null
           resolution: string | null
           status: string
           stream_icon: string | null
@@ -523,6 +524,7 @@ export type Database = {
           input_url: string
           name: string
           output_formats?: string[] | null
+          proxy_mode?: string | null
           resolution?: string | null
           status?: string
           stream_icon?: string | null
@@ -548,6 +550,7 @@ export type Database = {
           input_url?: string
           name?: string
           output_formats?: string[] | null
+          proxy_mode?: string | null
           resolution?: string | null
           status?: string
           stream_icon?: string | null

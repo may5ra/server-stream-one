@@ -87,6 +87,7 @@ const Streams = () => {
     channel_number: null as number | null,
     stream_icon: null as string | null,
     epg_channel_id: null as string | null,
+    proxy_mode: "direct" as string | null,
   });
 
   const filteredStreams = streams
@@ -146,6 +147,7 @@ const Streams = () => {
       channel_number: null,
       stream_icon: null,
       epg_channel_id: null,
+      proxy_mode: "direct",
     });
     setIsAddOpen(false);
   };
@@ -449,6 +451,24 @@ const Streams = () => {
                         onChange={(e) => setNewStream({ ...newStream, bitrate: parseInt(e.target.value) || 4500 })}
                       />
                     </div>
+                    
+                    <div className="space-y-2">
+                      <Label>Proxy Mode</Label>
+                      <p className="text-xs text-muted-foreground mb-2">Način preusmjeravanja streama</p>
+                      <Select 
+                        value={newStream.proxy_mode || "direct"}
+                        onValueChange={(v) => setNewStream({ ...newStream, proxy_mode: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="direct">Direct (passthrough)</SelectItem>
+                          <SelectItem value="hls">HLS Proxy (za zaštićene izvore)</SelectItem>
+                          <SelectItem value="ffmpeg">FFmpeg Re-stream (za CDN zaštitu)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </TabsContent>
                 </Tabs>
                 
@@ -585,6 +605,11 @@ const Streams = () => {
                       <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">{stream.bouquet}</Badge>
                     )}
                     <Badge variant="secondary" className="text-xs">{inputTypeLabels[stream.input_type] || stream.input_type}</Badge>
+                    {stream.proxy_mode && stream.proxy_mode !== "direct" && (
+                      <Badge variant="outline" className={`text-xs ${stream.proxy_mode === "hls" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" : "bg-orange-500/10 text-orange-400 border-orange-500/30"}`}>
+                        {stream.proxy_mode === "hls" ? "HLS Proxy" : "FFmpeg"}
+                      </Badge>
+                    )}
                     {stream.output_formats?.map((format: string) => (
                       <Badge key={format} variant="outline" className="text-xs">{format.toUpperCase()}</Badge>
                     ))}
@@ -749,6 +774,24 @@ const Streams = () => {
                   </TabsContent>
                   
                   <TabsContent value="advanced" className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Proxy Mode</Label>
+                      <p className="text-xs text-muted-foreground mb-2">Način preusmjeravanja streama</p>
+                      <Select 
+                        value={editingStream.proxy_mode || "direct"}
+                        onValueChange={(v) => setEditingStream({ ...editingStream, proxy_mode: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="direct">Direct (passthrough)</SelectItem>
+                          <SelectItem value="hls">HLS Proxy (za zaštićene izvore)</SelectItem>
+                          <SelectItem value="ffmpeg">FFmpeg Re-stream (za CDN zaštitu)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
                     <div className="flex items-center justify-between">
                       <Label>DVR</Label>
                       <Switch

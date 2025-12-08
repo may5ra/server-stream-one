@@ -114,16 +114,21 @@ Deno.serve(async (req) => {
       }
       
       const encodedName = encodeURIComponent(stream.name);
+      const proxyMode = stream.proxy_mode || "direct";
       
-      // Generate URL based on input type
-      if (stream.input_type === "hls") {
-        // HLS streams use proxy with .m3u8 extension
-        m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
-      } else if (stream.input_type === "mpd") {
-        // MPD/DASH streams use proxy with .mpd extension
-        m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/manifest.mpd\n`;
+      // Generate URL based on proxy_mode setting
+      if (proxyMode === "hls") {
+        // HLS proxy mode - FFmpeg re-stream via /hls/ endpoint
+        m3u += `http://${serverUrl}:${httpPort}/hls/${username}/${password}/${encodedName}/index.m3u8\n`;
+      } else if (proxyMode === "ffmpeg") {
+        // FFmpeg mode - direct MPEG-TS stream
+        m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
+      } else if (stream.input_type === "hls" || stream.input_type === "mpd") {
+        // Direct mode for HLS/MPD - use simple proxy
+        const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
+        m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
       } else {
-        // For RTMP/SRT/other streams, use traditional format
+        // Direct mode for RTMP/SRT/other streams
         const ext = output === "ts" ? ".ts" : ".m3u8";
         m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
       }
