@@ -34,43 +34,43 @@ export function ActivityChart({ servers, activeStreams, totalViewers }: Activity
   }
 
   return (
-    <div className="glass rounded-xl p-5 animate-fade-up" style={{ animationDelay: '0.1s' }}>
-      <div className="mb-4 flex items-center justify-between">
+    <div className="glass rounded-xl p-4 sm:p-5 animate-fade-up" style={{ animationDelay: '0.1s' }}>
+      <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Server Activity</h3>
-          <p className="text-sm text-muted-foreground">
-            {onlineServers.length} server(s) online • {activeStreams} active stream(s) • {totalViewers} viewer(s)
+          <h3 className="text-base sm:text-lg font-semibold text-foreground">Server Activity</h3>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            {onlineServers.length} server • {activeStreams} streams • {totalViewers} viewers
           </p>
         </div>
-        <div className="flex gap-4">
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded-full bg-primary" />
-            <span className="text-xs text-muted-foreground">CPU %</span>
+        <div className="flex gap-3 sm:gap-4 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-primary" />
+            <span className="text-[10px] sm:text-xs text-muted-foreground">CPU</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded-full bg-success" />
-            <span className="text-xs text-muted-foreground">Memory %</span>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-success" />
+            <span className="text-[10px] sm:text-xs text-muted-foreground">RAM</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded-full bg-warning" />
-            <span className="text-xs text-muted-foreground">Network %</span>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-warning" />
+            <span className="text-[10px] sm:text-xs text-muted-foreground">Net</span>
           </div>
         </div>
       </div>
       
-      <div className="h-64">
+      <div className="h-48 sm:h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={serverData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <BarChart data={serverData} margin={{ top: 10, right: 5, left: -25, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(217, 33%, 17%)" />
             <XAxis 
               dataKey="name" 
               stroke="hsl(215, 20%, 55%)" 
-              fontSize={12}
+              fontSize={10}
               tickLine={false}
             />
             <YAxis 
               stroke="hsl(215, 20%, 55%)" 
-              fontSize={12}
+              fontSize={10}
               tickLine={false}
               axisLine={false}
               domain={[0, 100]}
@@ -80,7 +80,8 @@ export function ActivityChart({ servers, activeStreams, totalViewers }: Activity
                 backgroundColor: 'hsl(222, 47%, 8%)', 
                 border: '1px solid hsl(217, 33%, 17%)',
                 borderRadius: '8px',
-                color: 'hsl(210, 40%, 98%)'
+                color: 'hsl(210, 40%, 98%)',
+                fontSize: '12px'
               }}
               formatter={(value: number) => [`${value}%`]}
             />
