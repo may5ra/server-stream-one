@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload, Sparkles } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -124,6 +124,12 @@ const Streams = () => {
   const uniqueBouquets = getUniqueBouquets(streams);
   const uniqueCategories = getUniqueCategories(streams);
 
+  // Calculate next channel number
+  const getNextChannelNumber = () => {
+    const maxChannel = streams.reduce((max, s) => Math.max(max, s.channel_number || 0), 0);
+    return maxChannel + 1;
+  };
+
   const [newStream, setNewStream] = useState({
     name: "",
     input_type: "rtmp",
@@ -145,6 +151,13 @@ const Streams = () => {
     epg_channel_id: null as string | null,
     proxy_mode: "direct" as string | null,
   });
+
+  // Auto-assign channel number when dialog opens
+  useEffect(() => {
+    if (isAddOpen && newStream.channel_number === null) {
+      setNewStream(prev => ({ ...prev, channel_number: getNextChannelNumber() }));
+    }
+  }, [isAddOpen, streams]);
 
   const filteredStreams = streams
     .filter(stream => {
