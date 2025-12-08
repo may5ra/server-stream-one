@@ -70,6 +70,10 @@ Deno.serve(async (req) => {
   const serverUrl = serverDomainSetting?.value || serverIpSetting?.value || url.hostname;
   const httpPort = httpPortSetting?.value || "80";
   
+  // Get Supabase URL for edge function proxy
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const edgeFunctionProxyBase = `${supabaseUrl}/functions/v1/stream-proxy`;
+  
   // Get all live streams
   const { data: streams } = await supabase
     .from("streams")
@@ -118,17 +122,17 @@ Deno.serve(async (req) => {
       
       // Generate URL based on proxy_mode setting
       if (proxyMode === "hls") {
-        // HLS proxy mode - FFmpeg re-stream via /hls/ endpoint
-        m3u += `http://${serverUrl}:${httpPort}/hls/${username}/${password}/${encodedName}/index.m3u8\n`;
+        // HLS proxy mode - use Edge Function proxy (works for IP-protected sources)
+        m3u += `${edgeFunctionProxyBase}/${username}/${password}/${encodedName}/index.m3u8\n`;
       } else if (proxyMode === "ffmpeg") {
-        // FFmpeg mode - direct MPEG-TS stream
+        // FFmpeg mode - direct MPEG-TS stream via Docker
         m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
       } else if (stream.input_type === "hls" || stream.input_type === "mpd") {
-        // Direct mode for HLS/MPD - use simple proxy
+        // Direct mode for HLS/MPD - use Edge Function proxy for URL rewriting
         const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
-        m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
+        m3u += `${edgeFunctionProxyBase}/${username}/${password}/${encodedName}/${ext}\n`;
       } else {
-        // Direct mode for RTMP/SRT/other streams
+        // Direct mode for RTMP/SRT/other streams - Docker server
         const ext = output === "ts" ? ".ts" : ".m3u8";
         m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
       }
