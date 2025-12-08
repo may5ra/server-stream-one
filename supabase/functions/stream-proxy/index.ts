@@ -391,7 +391,8 @@ Deno.serve(async (req) => {
 
     // For segments - return directly without processing
     if (isSegment) {
-      const contentType = getContentType(filePath || targetUrl, streamType);
+      // ALWAYS use targetUrl for content type detection, not filePath (which might be base64 encoded)
+      const contentType = getContentType(targetUrl, streamType);
       console.log(`[Proxy] Returning segment with Content-Type: ${contentType}`);
       
       return new Response(response.body, {
@@ -454,7 +455,8 @@ Deno.serve(async (req) => {
     });
 
     const rewrittenContent = rewritten.join('\n');
-    const contentType = getContentType(filePath || targetUrl, streamType);
+    // ALWAYS use targetUrl for content type detection, not filePath (which might be base64 encoded)
+    const contentType = getContentType(targetUrl, streamType);
     
     console.log(`[Proxy] Manifest rewritten, Content-Type: ${contentType}`);
 
