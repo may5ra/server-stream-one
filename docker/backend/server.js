@@ -2082,6 +2082,108 @@ app.get('/:username/:password/:streamName', async (req, res) => {
   }
 });
 
+// ==================== VOD MOVIE PROXY ====================
+app.get('/movie/:username/:password/:vodId', async (req, res) => {
+  const { username, password, vodId } = req.params;
+  
+  console.log(`[Movie] Request: ${vodId} from ${username}`);
+  
+  try {
+    // Auth check
+    let user = getCachedUser(username);
+    if (!user) {
+      const userResult = await pool.query(
+        'SELECT * FROM streaming_users WHERE username = $1 AND status != $2',
+        [username, 'disabled']
+      );
+      if (userResult.rows.length === 0) {
+        return res.status(403).json({ error: 'Invalid credentials' });
+      }
+      user = userResult.rows[0];
+      setCachedUser(username, user);
+    }
+    
+    if (user.password !== password) {
+      return res.status(403).json({ error: 'Invalid password' });
+    }
+    
+    const now = new Date();
+    const expiry = new Date(user.expiry_date);
+    if (expiry < now) {
+      return res.status(403).json({ error: 'Account expired' });
+    }
+    
+    // Get VOD content - extract ID without extension
+    const cleanId = vodId.replace(/\.[^/.]+$/, '');
+    const result = await pool.query('SELECT stream_url FROM vod_content WHERE id = $1', [cleanId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Movie not found' });
+    }
+    
+    const streamUrl = result.rows[0].stream_url;
+    console.log(`[Movie] Redirecting to: ${streamUrl}`);
+    
+    // Redirect to actual stream URL
+    res.redirect(302, streamUrl);
+    
+  } catch (error) {
+    console.error('[Movie] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== SERIES EPISODE PROXY ====================
+app.get('/series/:username/:password/:episodeId', async (req, res) => {
+  const { username, password, episodeId } = req.params;
+  
+  console.log(`[Series] Request: ${episodeId} from ${username}`);
+  
+  try {
+    // Auth check
+    let user = getCachedUser(username);
+    if (!user) {
+      const userResult = await pool.query(
+        'SELECT * FROM streaming_users WHERE username = $1 AND status != $2',
+        [username, 'disabled']
+      );
+      if (userResult.rows.length === 0) {
+        return res.status(403).json({ error: 'Invalid credentials' });
+      }
+      user = userResult.rows[0];
+      setCachedUser(username, user);
+    }
+    
+    if (user.password !== password) {
+      return res.status(403).json({ error: 'Invalid password' });
+    }
+    
+    const now = new Date();
+    const expiry = new Date(user.expiry_date);
+    if (expiry < now) {
+      return res.status(403).json({ error: 'Account expired' });
+    }
+    
+    // Get episode - extract ID without extension
+    const cleanId = episodeId.replace(/\.[^/.]+$/, '');
+    const result = await pool.query('SELECT stream_url FROM series_episodes WHERE id = $1', [cleanId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Episode not found' });
+    }
+    
+    const streamUrl = result.rows[0].stream_url;
+    console.log(`[Series] Redirecting to: ${streamUrl}`);
+    
+    // Redirect to actual stream URL
+    res.redirect(302, streamUrl);
+    
+  } catch (error) {
+    console.error('[Series] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
