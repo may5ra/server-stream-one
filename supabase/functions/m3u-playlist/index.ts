@@ -126,10 +126,12 @@ Deno.serve(async (req) => {
       const encodedName = encodeURIComponent(stream.name);
       const proxyMode = stream.proxy_mode || "direct";
       
-      console.log(`[M3U] Stream: ${stream.name}, proxy_mode: ${proxyMode}, input_type: ${stream.input_type}`);
+      console.log(`[M3U] Stream: ${stream.name}, proxy_mode: ${proxyMode}, output: ${output}`);
       
-      // Generate URL based on proxy_mode setting - proxy_mode takes priority over input_type
-      if (proxyMode === "hls") {
+      // If user requested TS output, always use FFmpeg TS format
+      if (output === "ts") {
+        m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
+      } else if (proxyMode === "hls") {
         // HLS proxy mode - FFmpeg re-stream via /hls/ endpoint
         m3u += `http://${serverUrl}:${httpPort}/hls/${username}/${password}/${encodedName}/index.m3u8\n`;
       } else if (proxyMode === "ffmpeg") {
@@ -141,8 +143,7 @@ Deno.serve(async (req) => {
           const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
           m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
         } else {
-          const ext = output === "ts" ? ".ts" : ".m3u8";
-          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
+          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}.m3u8\n`;
         }
       } else {
         // Fallback - use proxy for HLS/MPD, live for others
@@ -150,8 +151,7 @@ Deno.serve(async (req) => {
           const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
           m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
         } else {
-          const ext = output === "ts" ? ".ts" : ".m3u8";
-          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
+          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}.m3u8\n`;
         }
       }
     });
