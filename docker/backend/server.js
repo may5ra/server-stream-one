@@ -1468,6 +1468,151 @@ app.get('/proxy/*', async (req, res) => {
   }
 });
 
+// ==================== FFMPEG RE-STREAM PROXY ====================
+// For IP-protected sources like Nova - re-stream via FFmpeg (like XUI does)
+const { spawn } = require('child_process');
+const activeFFmpegProcesses = new Map(); // streamName -> {process, clients[]}
+
+app.get('/live/:streamName.ts', async (req, res) => {
+  const { streamName } = req.params;
+  const username = req.query.username;
+  const password = req.query.password;
+  
+  console.log(`[FFmpeg] Live request: ${streamName} from ${username || 'anonymous'}`);
+  
+  try {
+    // Auth check (same as proxy)
+    if (username && password) {
+      let user = getCachedUser(username);
+      if (!user) {
+        const userResult = await pool.query(
+          'SELECT * FROM streaming_users WHERE username = $1 AND status != $2',
+          [username, 'disabled']
+        );
+        if (userResult.rows.length === 0) {
+          return res.status(403).json({ error: 'Invalid credentials' });
+        }
+        user = userResult.rows[0];
+        setCachedUser(username, user);
+      }
+      
+      if (user.password !== password) {
+        return res.status(403).json({ error: 'Invalid password' });
+      }
+      
+      const now = new Date();
+      const expiry = new Date(user.expiry_date);
+      if (expiry < now) {
+        return res.status(403).json({ error: 'Account expired' });
+      }
+    }
+    
+    // Get stream
+    const decodedName = decodeURIComponent(streamName);
+    let stream = getCachedStream(decodedName);
+    if (!stream) {
+      const result = await pool.query('SELECT input_url FROM streams WHERE name = $1', [decodedName]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Stream not found' });
+      }
+      stream = result.rows[0];
+      setCachedStream(decodedName, stream);
+    }
+    
+    // Set headers for MPEG-TS stream
+    res.setHeader('Content-Type', 'video/mp2t');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    // Check if we already have an FFmpeg process for this stream
+    let streamData = activeFFmpegProcesses.get(decodedName);
+    
+    if (!streamData || !streamData.process || streamData.process.killed) {
+      // Start new FFmpeg process
+      console.log(`[FFmpeg] Starting new process for: ${decodedName}`);
+      console.log(`[FFmpeg] Input URL: ${stream.input_url}`);
+      
+      const ffmpeg = spawn('ffmpeg', [
+        '-hide_banner',
+        '-loglevel', 'warning',
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '5',
+        '-i', stream.input_url,
+        '-c', 'copy',
+        '-f', 'mpegts',
+        '-'
+      ]);
+      
+      streamData = {
+        process: ffmpeg,
+        clients: new Set(),
+        startTime: Date.now()
+      };
+      activeFFmpegProcesses.set(decodedName, streamData);
+      
+      ffmpeg.stdout.on('data', (chunk) => {
+        // Send to all connected clients
+        for (const client of streamData.clients) {
+          try {
+            if (!client.destroyed) {
+              client.write(chunk);
+            }
+          } catch (e) {
+            streamData.clients.delete(client);
+          }
+        }
+      });
+      
+      ffmpeg.stderr.on('data', (data) => {
+        console.log(`[FFmpeg] ${decodedName}: ${data.toString().trim()}`);
+      });
+      
+      ffmpeg.on('close', (code) => {
+        console.log(`[FFmpeg] Process ended for ${decodedName}, code: ${code}`);
+        activeFFmpegProcesses.delete(decodedName);
+        // Close all remaining clients
+        for (const client of streamData.clients) {
+          try { client.end(); } catch (e) {}
+        }
+      });
+      
+      ffmpeg.on('error', (err) => {
+        console.error(`[FFmpeg] Error for ${decodedName}:`, err.message);
+        activeFFmpegProcesses.delete(decodedName);
+      });
+    }
+    
+    // Add this client to the stream
+    streamData.clients.add(res);
+    console.log(`[FFmpeg] Client connected to ${decodedName}, total: ${streamData.clients.size}`);
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      streamData.clients.delete(res);
+      console.log(`[FFmpeg] Client disconnected from ${decodedName}, remaining: ${streamData.clients.size}`);
+      
+      // If no more clients, kill FFmpeg after 30 seconds
+      if (streamData.clients.size === 0) {
+        setTimeout(() => {
+          const current = activeFFmpegProcesses.get(decodedName);
+          if (current && current.clients.size === 0) {
+            console.log(`[FFmpeg] No clients, stopping: ${decodedName}`);
+            try { current.process.kill('SIGTERM'); } catch (e) {}
+            activeFFmpegProcesses.delete(decodedName);
+          }
+        }, 30000);
+      }
+    });
+    
+  } catch (error) {
+    console.error('[FFmpeg] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== ACTIVITY LOGS API ====================
 
 app.get('/api/activity-logs', async (req, res) => {
