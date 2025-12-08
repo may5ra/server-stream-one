@@ -1255,19 +1255,50 @@ app.get('/proxy/*', async (req, res) => {
     const cachedBase = global.streamBaseUrlCache.get(cacheKey);
     const masterCachedBase = global.streamBaseUrlCache.get(masterCacheKey);
     
-    // For .ts/.m4s segments without path prefix, find the most recent sub-manifest cache FIRST
+    // For .ts/.m4s segments without path prefix, determine if it's audio or video segment
+    // HLS audio segments typically have "audio" or "Audio" in the name, or specific patterns
     if (isSegment && !filePath.includes('/')) {
-      // Segment without directory - find most recent matching sub-manifest cache
+      // Determine segment type from filename patterns
+      const isAudioSegment = filePath.toLowerCase().includes('audio') || 
+                             filePath.match(/^[0-9]+_audio/i) ||
+                             filePath.match(/audio[_-]?\d+/i);
+      
+      // Find matching cache entry based on segment type
       let foundCache = null;
       let foundKey = null;
+      
       for (const [key, value] of global.streamBaseUrlCache.entries()) {
         if (key.startsWith(decodedStreamName + ':') && (Date.now() - value.timestamp) < cacheMaxAge) {
-          if (!foundCache || value.timestamp > foundCache.timestamp) {
-            foundCache = value;
-            foundKey = key;
+          const keyLower = key.toLowerCase();
+          const isAudioCache = keyLower.includes('audio');
+          
+          // Match audio segments to audio cache, video to video cache
+          if (isAudioSegment && isAudioCache) {
+            if (!foundCache || value.timestamp > foundCache.timestamp) {
+              foundCache = value;
+              foundKey = key;
+            }
+          } else if (!isAudioSegment && !isAudioCache) {
+            if (!foundCache || value.timestamp > foundCache.timestamp) {
+              foundCache = value;
+              foundKey = key;
+            }
           }
         }
       }
+      
+      // Fallback: if no type-specific cache found, use any recent cache
+      if (!foundCache) {
+        for (const [key, value] of global.streamBaseUrlCache.entries()) {
+          if (key.startsWith(decodedStreamName + ':') && (Date.now() - value.timestamp) < cacheMaxAge) {
+            if (!foundCache || value.timestamp > foundCache.timestamp) {
+              foundCache = value;
+              foundKey = key;
+            }
+          }
+        }
+      }
+      
       if (foundCache) {
         targetUrl = foundCache.baseUrl + filePath;
         console.log(`[Proxy] Segment using cache (${foundKey}): ${targetUrl}`);
@@ -1280,6 +1311,27 @@ app.get('/proxy/*', async (req, res) => {
           : inputUrl.endsWith('/') ? inputUrl : inputUrl + '/';
         targetUrl = baseUrl + filePath;
         console.log(`[Proxy] Segment fallback: ${targetUrl}`);
+      }
+    } else if (isSegment && filePath.includes('/')) {
+      // Segment WITH path (e.g., Audio-1/segment123.ts)
+      // Extract the directory and look for matching cache
+      const segmentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+      const segmentFile = filePath.substring(filePath.lastIndexOf('/') + 1);
+      const segmentCacheKey = `${decodedStreamName}:${segmentDir}`;
+      const segmentCache = global.streamBaseUrlCache.get(segmentCacheKey);
+      
+      if (segmentCache && (Date.now() - segmentCache.timestamp) < cacheMaxAge) {
+        targetUrl = segmentCache.baseUrl + segmentFile;
+        console.log(`[Proxy] Segment with path using specific cache: ${targetUrl}`);
+      } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
+        targetUrl = masterCachedBase.baseUrl + filePath;
+        console.log(`[Proxy] Segment with path using master cache: ${targetUrl}`);
+      } else {
+        const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd') 
+          ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
+          : inputUrl.endsWith('/') ? inputUrl : inputUrl + '/';
+        targetUrl = baseUrl + filePath;
+        console.log(`[Proxy] Segment with path fallback: ${targetUrl}`);
       }
     } else if (filePath.includes('/') && filePath.endsWith('.m3u8') && masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
       // For sub-manifests, use MASTER session (not old cached sub-manifest session)
@@ -1397,9 +1449,12 @@ app.get('/proxy/*', async (req, res) => {
       }
       
       // After following redirects, cache the base URL for this stream/path
-      if (redirectCount > 0 || (effectiveFilePath.endsWith('.m3u8') && filePath !== 'index.m3u8')) {
+      // IMPORTANT: Always cache for m3u8 files to handle audio/video variants
+      const shouldCache = redirectCount > 0 || effectiveFilePath.endsWith('.m3u8') || filePath.endsWith('.m3u8');
+      
+      if (shouldCache) {
         const resolvedBaseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
-        // Cache with path prefix for sub-manifests
+        // Cache with path prefix for sub-manifests (Audio-1/, Video-5M/, etc.)
         const pathPrefix = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
         const cacheKey = pathPrefix ? `${decodedStreamName}:${pathPrefix}` : decodedStreamName;
         
@@ -1678,21 +1733,30 @@ app.get('/proxy/*', async (req, res) => {
         const proxyBaseUrl = `/proxy/${encodeURIComponent(streamName)}/`;
         
         // Rewrite all URLs to go through our proxy
+        // CRITICAL: Preserve full path structure for audio/video variants
         const lines = m3u8Content.split('\n');
         const rewrittenLines = lines.map(line => {
           const trimmedLine = line.trim();
           
-          // Handle URI="..." in tags like EXT-X-MEDIA
+          // Handle URI="..." in tags like EXT-X-MEDIA (audio tracks!)
           if (trimmedLine.startsWith('#') && trimmedLine.includes('URI="')) {
             return line.replace(/URI="([^"]+)"/g, (match, uri) => {
               if (uri.startsWith('http://') || uri.startsWith('https://')) {
                 try {
                   const urlObj = new URL(uri);
-                  return `URI="${proxyBaseUrl}${urlObj.pathname.substring(1)}"`;
+                  // Keep full path from URL - critical for audio tracks
+                  const pathFromSession = urlObj.pathname;
+                  // Extract path after session ID if present
+                  const sessionMatch = pathFromSession.match(/\/session\/[^\/]+\/(.+)/);
+                  if (sessionMatch) {
+                    return `URI="${proxyBaseUrl}${sessionMatch[1]}"`;
+                  }
+                  return `URI="${proxyBaseUrl}${pathFromSession.substring(1)}"`;
                 } catch {
                   return match;
                 }
               }
+              // Relative URI - keep as-is with proxy prefix
               return `URI="${proxyBaseUrl}${uri}"`;
             });
           }
@@ -1702,7 +1766,13 @@ app.get('/proxy/*', async (req, res) => {
           if (trimmedLine.startsWith('http://') || trimmedLine.startsWith('https://')) {
             try {
               const urlObj = new URL(trimmedLine);
-              return proxyBaseUrl + urlObj.pathname.substring(1);
+              // Keep full path - extract after session ID if present
+              const pathFromSession = urlObj.pathname;
+              const sessionMatch = pathFromSession.match(/\/session\/[^\/]+\/(.+)/);
+              if (sessionMatch) {
+                return proxyBaseUrl + sessionMatch[1];
+              }
+              return proxyBaseUrl + pathFromSession.substring(1);
             } catch {
               return line;
             }
