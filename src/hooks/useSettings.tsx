@@ -62,19 +62,25 @@ export const useSettings = () => {
     
     // For HLS or MPD/DASH streams, use proxy to bypass CORS
     if ((inputType === 'hls' || inputType === 'mpd') && inputUrl) {
+      // Determine file extension based on input type
+      const fileExt = inputType === 'mpd' ? 'manifest.mpd' : 'index.m3u8';
+      
       // If running in Lovable preview, use Supabase edge function
       if (isLovablePreview) {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        console.log('[getStreamUrl] Supabase URL:', supabaseUrl, 'Stream:', streamName);
         if (supabaseUrl) {
-          // Don't add extension - let the proxy figure it out from input_url
-          return `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}`;
+          // Add file extension so proxy knows what to fetch
+          const url = `${supabaseUrl}/functions/v1/stream-proxy/${encodedName}/${fileExt}`;
+          console.log('[getStreamUrl] Generated proxy URL:', url);
+          return url;
         }
       }
       
       // For self-hosted Docker, use local proxy endpoint
       const domain = settings.serverDomain || window.location.host;
       const protocol = settings.enableSSL ? 'https' : (window.location.protocol === 'https:' ? 'https' : 'http');
-      return `${protocol}://${domain}/proxy/${encodedName}`;
+      return `${protocol}://${domain}/proxy/${encodedName}/${fileExt}`;
     }
     
     // For RTMP/SRT/other streams, construct the output URL
