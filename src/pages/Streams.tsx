@@ -856,14 +856,14 @@ const Streams = () => {
                   </TabsContent>
                   
                   <TabsContent value="advanced" className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Proxy Mode</Label>
-                      <p className="text-xs text-muted-foreground mb-2">Način preusmjeravanja streama</p>
+                    <div className="space-y-2 p-3 rounded-lg bg-primary/10 border border-primary/20">
+                      <Label className="text-primary font-semibold">Proxy Mode</Label>
+                      <p className="text-xs text-muted-foreground">Način preusmjeravanja streama za IPTV playlistu</p>
                       <Select 
                         value={editingStream.proxy_mode || "direct"}
                         onValueChange={(v) => setEditingStream({ ...editingStream, proxy_mode: v })}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="mt-2">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -874,19 +874,21 @@ const Streams = () => {
                       </Select>
                     </div>
                     
-                    <div className="flex items-center justify-between">
-                      <Label>DVR</Label>
-                      <Switch
-                        checked={editingStream.dvr_enabled}
-                        onCheckedChange={(checked) => setEditingStream({ ...editingStream, dvr_enabled: checked })}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label>ABR</Label>
-                      <Switch
-                        checked={editingStream.abr_enabled}
-                        onCheckedChange={(checked) => setEditingStream({ ...editingStream, abr_enabled: checked })}
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                        <Label>DVR</Label>
+                        <Switch
+                          checked={editingStream.dvr_enabled}
+                          onCheckedChange={(checked) => setEditingStream({ ...editingStream, dvr_enabled: checked })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                        <Label>ABR</Label>
+                        <Switch
+                          checked={editingStream.abr_enabled}
+                          onCheckedChange={(checked) => setEditingStream({ ...editingStream, abr_enabled: checked })}
+                        />
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label>Bitrate (kbps)</Label>
