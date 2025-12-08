@@ -296,11 +296,15 @@ Deno.serve(async (req) => {
     let isSegment = false;
     
     // Build proxy base URL for rewriting - MUST use full URL, not relative path
+    // Supabase edge functions URL format: https://{project}.supabase.co/functions/v1/{function}
     const supabaseProjectUrl = Deno.env.get('SUPABASE_URL')!;
-    const functionsBase = supabaseProjectUrl.replace('.supabase.co', '.supabase.co/functions/v1');
+    // Remove trailing slash and append functions path
+    const functionsBase = supabaseProjectUrl.replace(/\/$/, '') + '/functions/v1';
     const proxyBase = username && password 
       ? `${functionsBase}/stream-proxy/${username}/${password}/${encodeURIComponent(streamName)}/`
       : `${functionsBase}/stream-proxy/${encodeURIComponent(streamName)}/`;
+    
+    console.log(`[Proxy] ProxyBase URL: ${proxyBase}`);
 
     if (filePath.startsWith('b64/')) {
       // Decode base64 URL
