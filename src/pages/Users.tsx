@@ -1,4 +1,5 @@
 import { useState } from "react";
+
 import { Plus, Search, Circle, Edit, Trash2, Copy, Download, FileText, Loader2, Package } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -155,41 +156,32 @@ const Users = () => {
     }
   };
 
-  const generateM3UPlaylist = (user: StreamingUser, format: "m3u8" | "ts") => {
-    const serverUrl = getServerUrl();
-    
-    let playlist = `#EXTM3U\n`;
-    
-    streams.forEach((stream) => {
-      const streamIcon = stream.stream_icon || "";
-      const category = stream.category || "Live TV";
-      const epgId = stream.epg_channel_id || "";
-      const encodedName = encodeURIComponent(stream.name);
+  const handleDownloadPlaylist = async (user: StreamingUser) => {
+    try {
+      // Use edge function to generate playlist with correct URLs and bouquet filtering
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const playlistUrl = `${supabaseUrl}/functions/v1/m3u-playlist?username=${user.username}&password=${user.password}&type=m3u_plus&output=${outputFormat}`;
       
-      playlist += `#EXTINF:-1 tvg-id="${epgId}" tvg-name="${stream.name}" tvg-logo="${streamIcon}" group-title="${category}",${stream.name}\n`;
-      // Format: /proxy/username/password/streamName/index.m3u8 or stream.ts
-      if (format === "ts") {
-        playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/stream.ts\n`;
-      } else {
-        playlist += `${serverUrl}/proxy/${user.username}/${user.password}/${encodedName}/index.m3u8\n`;
+      const playlistResponse = await fetch(playlistUrl);
+      if (!playlistResponse.ok) {
+        throw new Error('Failed to generate playlist');
       }
-    });
-
-    return playlist;
-  };
-
-  const handleDownloadPlaylist = (user: StreamingUser) => {
-    const playlist = generateM3UPlaylist(user, outputFormat);
-    const blob = new Blob([playlist], { type: 'application/x-mpegurl' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${user.username}_${outputFormat}_playlist.m3u`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast({ title: "Preuzeto", description: `${outputFormat.toUpperCase()} playlist preuzet za ${user.username}` });
+      
+      const playlist = await playlistResponse.text();
+      const blob = new Blob([playlist], { type: 'application/x-mpegurl' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${user.username}_${outputFormat}_playlist.m3u`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Preuzeto", description: `${outputFormat.toUpperCase()} playlist preuzet za ${user.username}` });
+    } catch (error) {
+      console.error('Error downloading playlist:', error);
+      toast({ title: "Greška", description: "Nije moguće preuzeti playlist", variant: "destructive" });
+    }
   };
 
   const handleCopyPlaylistUrl = async (user: StreamingUser) => {
