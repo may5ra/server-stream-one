@@ -1300,7 +1300,12 @@ app.get('/proxy/*', async (req, res) => {
       const content = await response.text();
       const proxyBase = `/proxy/${encodeURIComponent(streamName)}/`;
       
-      // Simple URL rewriting
+      // Get base path from final URL (after redirects)
+      const finalUrl = response.url || targetUrl;
+      const finalUrlObj = new URL(finalUrl);
+      const basePath = finalUrlObj.pathname.substring(0, finalUrlObj.pathname.lastIndexOf('/') + 1);
+      
+      // Simple URL rewriting - preserve full paths
       const lines = content.split('\n');
       const rewritten = lines.map(line => {
         const trimmed = line.trim();
@@ -1309,23 +1314,32 @@ app.get('/proxy/*', async (req, res) => {
         if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
           return line.replace(/URI="([^"]+)"/g, (match, uri) => {
             if (uri.startsWith('http')) {
-              // Extract just the filename or relative path
+              // Full URL - keep the entire path
               const url = new URL(uri);
-              return `URI="${proxyBase}${url.pathname.split('/').slice(-2).join('/')}"`;
+              return `URI="${proxyBase}${url.pathname.substring(1)}"`;
             }
-            return `URI="${proxyBase}${uri}"`;
+            if (uri.startsWith('/')) {
+              // Absolute path
+              return `URI="${proxyBase}${uri.substring(1)}"`;
+            }
+            // Relative path - resolve against base
+            return `URI="${proxyBase}${basePath.substring(1)}${uri}"`;
           });
         }
         
         // Skip comments and empty lines
         if (trimmed.startsWith('#') || !trimmed) return line;
         
-        // Rewrite URLs
+        // Rewrite URLs - keep full path structure
         if (trimmed.startsWith('http')) {
           const url = new URL(trimmed);
-          return proxyBase + url.pathname.split('/').slice(-2).join('/');
+          return proxyBase + url.pathname.substring(1);
         }
-        return proxyBase + trimmed;
+        if (trimmed.startsWith('/')) {
+          return proxyBase + trimmed.substring(1);
+        }
+        // Relative - resolve against base path
+        return proxyBase + basePath.substring(1) + trimmed;
       });
       
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
