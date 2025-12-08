@@ -1377,8 +1377,28 @@ app.get('/proxy/*', async (req, res) => {
       // Get base URL from final URL (after redirects)
       const finalUrl = response.url || targetUrl;
       const finalUrlBase = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
+      const finalUrlOrigin = new URL(finalUrl).origin;
       
-      // Base64 encode all URLs - simple and reliable!
+      // Helper: check if URL is from a different domain (external CDN)
+      const isExternalCdn = (url) => {
+        try {
+          const urlOrigin = new URL(url).origin;
+          return urlOrigin !== finalUrlOrigin;
+        } catch {
+          return false;
+        }
+      };
+      
+      // Helper: check if it's a segment file (not manifest)
+      const isSegmentFile = (url) => {
+        const lower = url.toLowerCase();
+        return lower.endsWith('.ts') || lower.endsWith('.aac') || 
+               lower.endsWith('.m4s') || lower.endsWith('.mp4') ||
+               lower.includes('/segment') || lower.includes('/chunk');
+      };
+      
+      // Base64 encode URLs - but DON'T rewrite external CDN segment URLs
+      // This helps with IP-token protected CDNs
       const lines = content.split('\n');
       const rewritten = lines.map(line => {
         const trimmed = line.trim();
@@ -1390,13 +1410,18 @@ app.get('/proxy/*', async (req, res) => {
             if (uri.startsWith('http')) {
               fullUrl = uri;
             } else if (uri.startsWith('/')) {
-              // Absolute path - need origin
               const urlObj = new URL(finalUrl);
               fullUrl = urlObj.origin + uri;
             } else {
-              // Relative path
               fullUrl = finalUrlBase + uri;
             }
+            
+            // DON'T proxy external CDN segments - let client fetch directly
+            if (isExternalCdn(fullUrl) && isSegmentFile(fullUrl)) {
+              console.log(`[Proxy] Passthrough external segment: ${fullUrl.substring(0, 80)}...`);
+              return `URI="${fullUrl}"`;
+            }
+            
             const encoded = Buffer.from(fullUrl).toString('base64');
             return `URI="${proxyBase}b64/${encodeURIComponent(encoded)}"`;
           });
@@ -1405,7 +1430,7 @@ app.get('/proxy/*', async (req, res) => {
         // Skip comments and empty lines
         if (trimmed.startsWith('#') || !trimmed) return line;
         
-        // Rewrite all URLs using base64
+        // Build full URL
         let fullUrl;
         if (trimmed.startsWith('http')) {
           fullUrl = trimmed;
@@ -1416,6 +1441,12 @@ app.get('/proxy/*', async (req, res) => {
           fullUrl = finalUrlBase + trimmed;
         }
         
+        // DON'T proxy external CDN segments - let client fetch directly
+        if (isExternalCdn(fullUrl) && isSegmentFile(fullUrl)) {
+          console.log(`[Proxy] Passthrough external segment: ${fullUrl.substring(0, 80)}...`);
+          return fullUrl;
+        }
+        
         const encoded = Buffer.from(fullUrl).toString('base64');
         return proxyBase + 'b64/' + encodeURIComponent(encoded);
       });
@@ -1423,6 +1454,7 @@ app.get('/proxy/*', async (req, res) => {
       // Use targetUrl for content type detection
       res.setHeader('Content-Type', getContentTypeFromUrl(targetUrl));
       res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Access-Control-Allow-Origin', '*');
       res.send(rewritten.join('\n'));
       
     } catch (error) {
