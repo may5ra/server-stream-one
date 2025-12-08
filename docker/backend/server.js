@@ -1470,8 +1470,211 @@ app.get('/proxy/*', async (req, res) => {
 
 // ==================== FFMPEG RE-STREAM PROXY ====================
 // For IP-protected sources like Nova - re-stream via FFmpeg (like XUI does)
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
 const activeFFmpegProcesses = new Map(); // streamName -> {process, clients[]}
+const hlsOutputDir = path.join(os.tmpdir(), 'streampanel-hls');
+
+// Ensure HLS directory exists
+try {
+  if (!fs.existsSync(hlsOutputDir)) {
+    fs.mkdirSync(hlsOutputDir, { recursive: true });
+  }
+} catch (e) {
+  console.log('[FFmpeg] Could not create HLS dir:', e.message);
+}
+
+// ==================== FFmpeg HLS Generator ====================
+// Generates real HLS output for /proxy/ fallback
+const activeHlsStreams = new Map(); // streamName -> {process, startTime, ready}
+
+function startHlsStream(streamName, inputUrl) {
+  const streamDir = path.join(hlsOutputDir, streamName.replace(/[^a-zA-Z0-9_-]/g, '_'));
+  
+  // Create stream directory
+  try {
+    if (!fs.existsSync(streamDir)) {
+      fs.mkdirSync(streamDir, { recursive: true });
+    }
+  } catch (e) {
+    console.error('[HLS] Failed to create dir:', e.message);
+    return null;
+  }
+  
+  const playlistPath = path.join(streamDir, 'index.m3u8');
+  
+  console.log(`[HLS] Starting FFmpeg for: ${streamName}`);
+  console.log(`[HLS] Input: ${inputUrl}`);
+  console.log(`[HLS] Output dir: ${streamDir}`);
+  
+  const ffmpeg = spawn('ffmpeg', [
+    '-hide_banner',
+    '-loglevel', 'warning',
+    '-reconnect', '1',
+    '-reconnect_streamed', '1', 
+    '-reconnect_delay_max', '5',
+    '-i', inputUrl,
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-f', 'hls',
+    '-hls_time', '4',
+    '-hls_list_size', '5',
+    '-hls_flags', 'delete_segments+append_list',
+    '-hls_segment_filename', path.join(streamDir, 'segment_%03d.ts'),
+    playlistPath
+  ]);
+  
+  const hlsData = {
+    process: ffmpeg,
+    streamDir,
+    playlistPath,
+    startTime: Date.now(),
+    ready: false,
+    lastAccess: Date.now()
+  };
+  
+  activeHlsStreams.set(streamName, hlsData);
+  
+  // Check for playlist ready
+  const checkReady = setInterval(() => {
+    if (fs.existsSync(playlistPath)) {
+      hlsData.ready = true;
+      console.log(`[HLS] Stream ready: ${streamName}`);
+      clearInterval(checkReady);
+    }
+    // Timeout after 30 seconds
+    if (Date.now() - hlsData.startTime > 30000 && !hlsData.ready) {
+      console.log(`[HLS] Timeout waiting for: ${streamName}`);
+      clearInterval(checkReady);
+    }
+  }, 500);
+  
+  ffmpeg.stderr.on('data', (data) => {
+    const msg = data.toString().trim();
+    if (msg.includes('error') || msg.includes('Error')) {
+      console.error(`[HLS] ${streamName}: ${msg}`);
+    }
+  });
+  
+  ffmpeg.on('close', (code) => {
+    console.log(`[HLS] FFmpeg ended for ${streamName}, code: ${code}`);
+    clearInterval(checkReady);
+    activeHlsStreams.delete(streamName);
+    // Cleanup files
+    try {
+      fs.rmSync(streamDir, { recursive: true, force: true });
+    } catch (e) {}
+  });
+  
+  ffmpeg.on('error', (err) => {
+    console.error(`[HLS] FFmpeg error for ${streamName}:`, err.message);
+    activeHlsStreams.delete(streamName);
+  });
+  
+  return hlsData;
+}
+
+// Cleanup inactive HLS streams every 60 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [name, data] of activeHlsStreams.entries()) {
+    if (now - data.lastAccess > 120000) { // 2 minutes idle
+      console.log(`[HLS] Stopping idle stream: ${name}`);
+      try { data.process.kill('SIGTERM'); } catch (e) {}
+      activeHlsStreams.delete(name);
+      try { fs.rmSync(data.streamDir, { recursive: true, force: true }); } catch (e) {}
+    }
+  }
+}, 60000);
+
+// ==================== HLS Playlist endpoint ====================
+// Serves FFmpeg-generated HLS for protected streams
+app.get('/hls/:streamName/index.m3u8', async (req, res) => {
+  const { streamName } = req.params;
+  const decodedName = decodeURIComponent(streamName);
+  
+  console.log(`[HLS] Playlist request: ${decodedName}`);
+  
+  try {
+    // Get stream URL
+    let stream = getCachedStream(decodedName);
+    if (!stream) {
+      const result = await pool.query('SELECT input_url FROM streams WHERE name = $1', [decodedName]);
+      if (result.rows.length === 0) {
+        return res.status(404).send('#EXTM3U\n#EXT-X-ERROR:Stream not found');
+      }
+      stream = result.rows[0];
+      setCachedStream(decodedName, stream);
+    }
+    
+    // Check if HLS stream is running
+    let hlsData = activeHlsStreams.get(decodedName);
+    
+    if (!hlsData || !hlsData.process || hlsData.process.killed) {
+      // Start new HLS stream
+      hlsData = startHlsStream(decodedName, stream.input_url);
+      if (!hlsData) {
+        return res.status(500).send('#EXTM3U\n#EXT-X-ERROR:Failed to start stream');
+      }
+    }
+    
+    hlsData.lastAccess = Date.now();
+    
+    // Wait for playlist to be ready (max 10 seconds)
+    let waited = 0;
+    while (!hlsData.ready && waited < 10000) {
+      await new Promise(r => setTimeout(r, 500));
+      waited += 500;
+    }
+    
+    if (!fs.existsSync(hlsData.playlistPath)) {
+      return res.status(503).send('#EXTM3U\n#EXT-X-ERROR:Stream starting...');
+    }
+    
+    // Read and rewrite playlist with correct segment URLs
+    let playlist = fs.readFileSync(hlsData.playlistPath, 'utf8');
+    
+    // Rewrite segment URLs to point to our endpoint
+    playlist = playlist.replace(/segment_(\d+)\.ts/g, `/hls/${encodeURIComponent(streamName)}/segment_$1.ts`);
+    
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(playlist);
+    
+  } catch (error) {
+    console.error('[HLS] Error:', error);
+    res.status(500).send('#EXTM3U\n#EXT-X-ERROR:' + error.message);
+  }
+});
+
+// Serve HLS segments
+app.get('/hls/:streamName/:segment', (req, res) => {
+  const { streamName, segment } = req.params;
+  const decodedName = decodeURIComponent(streamName);
+  
+  const hlsData = activeHlsStreams.get(decodedName);
+  if (!hlsData) {
+    return res.status(404).send('Stream not found');
+  }
+  
+  hlsData.lastAccess = Date.now();
+  
+  const segmentPath = path.join(hlsData.streamDir, segment);
+  
+  if (!fs.existsSync(segmentPath)) {
+    return res.status(404).send('Segment not found');
+  }
+  
+  res.setHeader('Content-Type', 'video/mp2t');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  fs.createReadStream(segmentPath).pipe(res);
+});
 
 app.get('/live/:streamName.ts', async (req, res) => {
   const { streamName } = req.params;
