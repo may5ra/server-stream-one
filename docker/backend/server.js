@@ -1275,9 +1275,23 @@ app.get('/proxy/*', async (req, res) => {
       // Set CORS headers
       res.setHeader('Access-Control-Allow-Origin', '*');
       
+      // Helper to get content type from URL
+      const getContentTypeFromUrl = (url) => {
+        const lowerUrl = url.toLowerCase();
+        if (lowerUrl.endsWith('.ts')) return 'video/mp2t';
+        if (lowerUrl.endsWith('.m4s')) return 'video/iso.segment';
+        if (lowerUrl.endsWith('.m4a')) return 'audio/mp4';
+        if (lowerUrl.endsWith('.aac')) return 'audio/aac';
+        if (lowerUrl.endsWith('.mp4')) return 'video/mp4';
+        if (lowerUrl.endsWith('.m3u8')) return 'application/vnd.apple.mpegurl';
+        if (lowerUrl.endsWith('.mpd')) return 'application/dash+xml';
+        return 'application/octet-stream';
+      };
+      
       // For segments - direct pipe, no processing
       if (isSegment) {
-        res.setHeader('Content-Type', filePath.endsWith('.ts') ? 'video/mp2t' : 'video/iso.segment');
+        // ALWAYS use targetUrl for content type, not filePath (which might be b64 encoded)
+        res.setHeader('Content-Type', getContentTypeFromUrl(targetUrl));
         res.setHeader('Cache-Control', 'max-age=86400');
         
         const contentLength = response.headers.get('content-length');
@@ -1307,7 +1321,11 @@ app.get('/proxy/*', async (req, res) => {
       
       // For manifests - rewrite URLs using base64 encoding
       const content = await response.text();
-      const proxyBase = `/proxy/${encodeURIComponent(streamName)}/`;
+      
+      // Build FULL URL base for proxy (not relative path!)
+      const serverDomain = process.env.SERVER_DOMAIN || req.get('host') || 'localhost';
+      const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+      const proxyBase = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/`;
       
       // Get base URL from final URL (after redirects)
       const finalUrl = response.url || targetUrl;
@@ -1355,7 +1373,8 @@ app.get('/proxy/*', async (req, res) => {
         return proxyBase + 'b64/' + encodeURIComponent(encoded);
       });
       
-      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      // Use targetUrl for content type detection
+      res.setHeader('Content-Type', getContentTypeFromUrl(targetUrl));
       res.setHeader('Cache-Control', 'no-cache');
       res.send(rewritten.join('\n'));
       
