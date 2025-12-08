@@ -1222,484 +1222,61 @@ app.get('/proxy/*', async (req, res) => {
       return res.status(400).json({ error: 'Stream has no source URL' });
     }
     
-    // Cache for storing resolved base URLs after redirects
-    // Key: streamName or streamName:pathPrefix, Value: { baseUrl, timestamp }
-    if (!global.streamBaseUrlCache) {
-      global.streamBaseUrlCache = new Map();
-    }
+    // ==================== SIMPLIFIED DIRECT PROXY ====================
+    // Simple approach: 
+    // 1. For manifests: fetch, rewrite URLs, return
+    // 2. For segments: direct pipe through
     
-    // Keep-alive agent for faster connections
-    if (!global.httpAgent) {
-      const http = require('http');
-      global.httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100, timeout: 3000 });
-    }
-    
-    // Construct target URL
-    let targetUrl;
     const inputUrl = stream.input_url.trim();
-    let effectiveFilePath = filePath;
-    const cacheMaxAge = 2 * 60 * 1000; // 2 minutes cache - sessions expire fast!
+    let targetUrl;
     
-    // Get path prefix for caching (e.g., "16/Video-5M" from "16/Video-5M/manifest.m3u8")
-    const getPathPrefix = (fp) => {
-      const lastSlash = fp.lastIndexOf('/');
-      return lastSlash > 0 ? fp.substring(0, lastSlash) : '';
-    };
-    
-    // Get cache key based on stream and path prefix
-    const pathPrefix = getPathPrefix(filePath);
-    const cacheKey = pathPrefix ? `${decodedStreamName}:${pathPrefix}` : decodedStreamName;
-    const masterCacheKey = decodedStreamName;
-    
-    // Check if we have a cached base URL for this specific path or the master
-    const cachedBase = global.streamBaseUrlCache.get(cacheKey);
-    const masterCachedBase = global.streamBaseUrlCache.get(masterCacheKey);
-    
-    // For .ts/.m4s segments without path prefix, determine if it's audio or video segment
-    // HLS audio segments typically have "audio" or "Audio" in the name, or specific patterns
-    if (isSegment && !filePath.includes('/')) {
-      // Determine segment type from filename patterns
-      const isAudioSegment = filePath.toLowerCase().includes('audio') || 
-                             filePath.match(/^[0-9]+_audio/i) ||
-                             filePath.match(/audio[_-]?\d+/i);
-      
-      // Find matching cache entry based on segment type
-      let foundCache = null;
-      let foundKey = null;
-      
-      for (const [key, value] of global.streamBaseUrlCache.entries()) {
-        if (key.startsWith(decodedStreamName + ':') && (Date.now() - value.timestamp) < cacheMaxAge) {
-          const keyLower = key.toLowerCase();
-          const isAudioCache = keyLower.includes('audio');
-          
-          // Match audio segments to audio cache, video to video cache
-          if (isAudioSegment && isAudioCache) {
-            if (!foundCache || value.timestamp > foundCache.timestamp) {
-              foundCache = value;
-              foundKey = key;
-            }
-          } else if (!isAudioSegment && !isAudioCache) {
-            if (!foundCache || value.timestamp > foundCache.timestamp) {
-              foundCache = value;
-              foundKey = key;
-            }
-          }
-        }
-      }
-      
-      // Fallback: if no type-specific cache found, use any recent cache
-      if (!foundCache) {
-        for (const [key, value] of global.streamBaseUrlCache.entries()) {
-          if (key.startsWith(decodedStreamName + ':') && (Date.now() - value.timestamp) < cacheMaxAge) {
-            if (!foundCache || value.timestamp > foundCache.timestamp) {
-              foundCache = value;
-              foundKey = key;
-            }
-          }
-        }
-      }
-      
-      if (foundCache) {
-        targetUrl = foundCache.baseUrl + filePath;
-        console.log(`[Proxy] Segment using cache (${foundKey}): ${targetUrl}`);
-      } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
-        targetUrl = masterCachedBase.baseUrl + filePath;
-      } else {
-        // Fallback to constructing from input_url
-        const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd') 
-          ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
-          : inputUrl.endsWith('/') ? inputUrl : inputUrl + '/';
-        targetUrl = baseUrl + filePath;
-        console.log(`[Proxy] Segment fallback: ${targetUrl}`);
-      }
-    } else if (isSegment && filePath.includes('/')) {
-      // Segment WITH path (e.g., Audio-1/segment123.ts)
-      // Extract the directory and look for matching cache
-      const segmentDir = filePath.substring(0, filePath.lastIndexOf('/'));
-      const segmentFile = filePath.substring(filePath.lastIndexOf('/') + 1);
-      const segmentCacheKey = `${decodedStreamName}:${segmentDir}`;
-      const segmentCache = global.streamBaseUrlCache.get(segmentCacheKey);
-      
-      if (segmentCache && (Date.now() - segmentCache.timestamp) < cacheMaxAge) {
-        targetUrl = segmentCache.baseUrl + segmentFile;
-        console.log(`[Proxy] Segment with path using specific cache: ${targetUrl}`);
-      } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
-        targetUrl = masterCachedBase.baseUrl + filePath;
-        console.log(`[Proxy] Segment with path using master cache: ${targetUrl}`);
-      } else {
-        const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd') 
-          ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
-          : inputUrl.endsWith('/') ? inputUrl : inputUrl + '/';
-        targetUrl = baseUrl + filePath;
-        console.log(`[Proxy] Segment with path fallback: ${targetUrl}`);
-      }
-    } else if (filePath.includes('/') && filePath.endsWith('.m3u8') && masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
-      // For sub-manifests, use MASTER session (not old cached sub-manifest session)
-      // This ensures we use the same session as the master manifest
-      targetUrl = masterCachedBase.baseUrl + filePath;
-      console.log(`[Proxy] Sub-manifest using master session: ${targetUrl}`);
-    } else if (cachedBase && (Date.now() - cachedBase.timestamp) < cacheMaxAge && filePath !== 'index.m3u8' && filePath !== 'index.ts' && !filePath.endsWith('.m3u8')) {
-      // Use cached base URL for non-manifest paths - keep FULL path for DASH segments!
-      // DASH uses directory structure like 16/Video-1_5M/segment.cmfv
-      targetUrl = cachedBase.baseUrl + filePath;
-      console.log(`[Proxy] Using cached base URL for path: ${targetUrl}`);
-    } else if (filePath === 'index.m3u8' || filePath === 'index.ts') {
-      // For main playlist requests, use input_url and resolve redirects
-      if (inputUrl.endsWith('.m3u8')) {
+    // Build target URL simply
+    if (filePath === 'index.m3u8' || filePath === 'index.ts') {
+      // Main manifest - use input URL directly
+      if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd')) {
         targetUrl = inputUrl;
-      } else if (inputUrl.endsWith('/')) {
-        targetUrl = `${inputUrl}index.m3u8`;
       } else {
-        targetUrl = `${inputUrl}/index.m3u8`;
+        targetUrl = inputUrl.replace(/\/$/, '') + '/index.m3u8';
       }
-      effectiveFilePath = 'index.m3u8';
-    } else if (filePath === 'manifest.mpd') {
-      if (inputUrl.endsWith('.mpd')) {
-        targetUrl = inputUrl;
-      } else if (inputUrl.endsWith('/')) {
-        targetUrl = `${inputUrl}manifest.mpd`;
-      } else {
-        targetUrl = `${inputUrl}/manifest.mpd`;
-      }
-    } else if (masterCachedBase && (Date.now() - masterCachedBase.timestamp) < cacheMaxAge) {
-      // Use master cached base for any other file type
-      targetUrl = masterCachedBase.baseUrl + filePath;
-    } else if (inputUrl.endsWith('.mpd')) {
-      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${filePath}`;
-    } else if (inputUrl.endsWith('.m3u8')) {
-      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${filePath}`;
-    } else if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${filePath}`;
     } else {
-      targetUrl = `${inputUrl}/${filePath}`;
+      // Segments and sub-manifests - build from base URL
+      const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd')
+        ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
+        : inputUrl.replace(/\/$/, '') + '/';
+      targetUrl = baseUrl + filePath;
     }
     
-    console.log(`[Proxy] Target URL: ${targetUrl}`);
-    
-    // Helper function to extract redirect URL from HTML
-    const extractRedirectUrl = (html) => {
-      // Look for href="..." pattern in HTML redirect pages
-      const hrefMatch = html.match(/href=["']?([^"'\s>]+\.m3u8[^"'\s>]*)["']?/i);
-      if (hrefMatch) return hrefMatch[1];
-      
-      // Also try meta refresh pattern
-      const metaMatch = html.match(/content=["'][^"']*url=([^"'\s>]+)["']/i);
-      if (metaMatch) return metaMatch[1];
-      
-      return null;
-    };
-    
-    // Fetch with reasonable timeout - some sources are slower
-    const controller = new AbortController();
-    const timeoutMs = isSegment ? 30000 : 15000; // 30s for segments (large files), 15s for manifests
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    console.log(`[Proxy] ${isSegment ? 'Segment' : 'Manifest'}: ${targetUrl}`);
     
     try {
-      let currentUrl = targetUrl;
-      let response;
-      let redirectCount = 0;
-      const maxRedirects = 5;
-      
-      // For SEGMENTS with cached session URL, skip redirect handling - go direct!
-      if (isSegment && currentUrl.includes('/session/')) {
-        console.log(`[Proxy] Direct segment fetch (cached session): ${currentUrl}`);
-        response = await fetch(currentUrl, {
-          redirect: 'follow',
-          headers: {
-            'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
-            'Accept': '*/*',
-            'Connection': 'keep-alive',
-          },
-          signal: controller.signal
-        });
-      } else {
-        // For manifests and non-cached segments, manually follow redirects
-        while (redirectCount < maxRedirects) {
-          response = await fetch(currentUrl, {
-            redirect: 'manual',
-            headers: {
-              'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
-              'Accept': '*/*',
-              'Connection': 'keep-alive',
-            },
-            signal: controller.signal
-          });
-          
-          if ([301, 302, 303, 307, 308].includes(response.status)) {
-            const location = response.headers.get('location');
-            if (location) {
-              if (location.startsWith('/')) {
-                const urlObj = new URL(currentUrl);
-                currentUrl = `${urlObj.protocol}//${urlObj.host}${location}`;
-              } else if (!location.startsWith('http')) {
-                const baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
-                currentUrl = baseUrl + location;
-              } else {
-                currentUrl = location;
-              }
-              console.log(`[Proxy] Following redirect to: ${currentUrl}`);
-              redirectCount++;
-              continue;
-            }
-          }
-          break;
+      // Simple fetch with redirect following
+      const response = await fetch(targetUrl, {
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
+          'Accept': '*/*',
         }
-      }
-      
-      // After following redirects, cache the base URL for this stream/path
-      // IMPORTANT: Always cache for m3u8 files to handle audio/video variants
-      const shouldCache = redirectCount > 0 || effectiveFilePath.endsWith('.m3u8') || filePath.endsWith('.m3u8');
-      
-      if (shouldCache) {
-        const resolvedBaseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
-        // Cache with path prefix for sub-manifests (Audio-1/, Video-5M/, etc.)
-        const pathPrefix = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
-        const cacheKey = pathPrefix ? `${decodedStreamName}:${pathPrefix}` : decodedStreamName;
-        
-        // If this is the master manifest (index.m3u8), clear all sub-manifest caches for this stream
-        // because the session ID has changed
-        if (filePath === 'index.m3u8' || filePath === 'index.ts') {
-          const keysToDelete = [];
-          for (const key of global.streamBaseUrlCache.keys()) {
-            if (key.startsWith(decodedStreamName + ':')) {
-              keysToDelete.push(key);
-            }
-          }
-          keysToDelete.forEach(k => {
-            global.streamBaseUrlCache.delete(k);
-            console.log(`[Proxy] Cleared old sub-manifest cache: ${k}`);
-          });
-        }
-        
-        global.streamBaseUrlCache.set(cacheKey, {
-          baseUrl: resolvedBaseUrl,
-          timestamp: Date.now()
-        });
-        console.log(`[Proxy] Cached base URL for ${cacheKey}: ${resolvedBaseUrl}`);
-      }
-      
-      if (redirectCount >= maxRedirects) {
-        console.error(`[Proxy] Too many redirects`);
-        clearTimeout(timeout);
-        return res.status(502).json({ error: 'Too many redirects' });
-      }
-      
-      // Check if response is HTML (might be a redirect page)
-      const responseContentType = response.headers.get('content-type') || '';
-      if (response.ok && responseContentType.includes('text/html')) {
-        const html = await response.text();
-        const redirectUrl = extractRedirectUrl(html);
-        
-        if (redirectUrl) {
-          console.log(`[Proxy] Found HTML redirect, following to: ${redirectUrl}`);
-          currentUrl = redirectUrl;
-          
-          // Cache this base URL too
-          const resolvedBaseUrl = redirectUrl.substring(0, redirectUrl.lastIndexOf('/') + 1);
-          global.streamBaseUrlCache.set(decodedStreamName, {
-            baseUrl: resolvedBaseUrl,
-            timestamp: Date.now()
-          });
-          
-          response = await fetch(redirectUrl, {
-            redirect: 'follow',
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Accept': '*/*',
-            },
-            signal: controller.signal
-          });
-        } else {
-          console.error(`[Proxy] Got HTML response but no redirect URL found`);
-          clearTimeout(timeout);
-          return res.status(502).json({ error: 'Invalid upstream response (HTML without redirect)' });
-        }
-      }
-      
-      clearTimeout(timeout);
-      
-      // Handle 404 - SMART CACHE HANDLING
-      // Key insight: Only MANIFEST files should trigger cache clear + retry
-      // Segments and subtitles should just fail gracefully - the player will request new manifest
-      if (response.status === 404) {
-        const isSubtitle = filePath.endsWith('.webvtt') || filePath.endsWith('.vtt') || filePath.endsWith('.srt');
-        const isSegment = filePath.endsWith('.ts') || filePath.endsWith('.m4s') || filePath.endsWith('.m4a') || filePath.endsWith('.m4v') || filePath.endsWith('.aac');
-        const isManifest = filePath.endsWith('.m3u8') || filePath.endsWith('.mpd') || filePath === 'index.ts' || filePath === 'manifest.mpd';
-        
-        if (isSubtitle) {
-          // Subtitles are completely non-critical - silent 404
-          console.log(`[Proxy] Subtitle 404 (non-critical): ${filePath}`);
-          return res.status(404).send('');
-        }
-        
-        if (isSegment) {
-          // Segments 404 = session expired, but DON'T clear cache here
-          // The player will naturally request a new manifest when segments fail
-          // Clearing cache here causes race conditions and stream breakage
-          console.log(`[Proxy] Segment 404 (session expired, letting player recover): ${filePath}`);
-          return res.status(404).send('');
-        }
-        
-        if (isManifest) {
-          // ONLY manifests should trigger cache clear and retry
-          console.log(`[Proxy] Manifest 404, clearing cache for ${decodedStreamName} and retrying with fresh session...`);
-          
-          // Clear ALL caches for this stream
-          const keysToDelete = [];
-          for (const key of global.streamBaseUrlCache.keys()) {
-            if (key === decodedStreamName || key.startsWith(decodedStreamName + ':')) {
-              keysToDelete.push(key);
-            }
-          }
-          keysToDelete.forEach(k => global.streamBaseUrlCache.delete(k));
-          
-          // Also invalidate stream cache to force fresh DB lookup
-          invalidateStreamCache(decodedStreamName);
-          
-          // Retry with FRESH fetch from original input_url - following ALL redirects
-          // This is critical for session-based streams like Slovenian ones
-          try {
-            // Start from the original input URL and follow redirects to get new session
-            let freshUrl = stream.input_url.trim();
-            if (!freshUrl.endsWith('.m3u8') && !freshUrl.endsWith('.mpd')) {
-              freshUrl = freshUrl.replace(/\/$/, '') + '/' + getDefaultFile(stream.input_url);
-            }
-            
-            console.log(`[Proxy] Fetching fresh session from: ${freshUrl}`);
-            
-            // Follow ALL redirects (HTTP + HTML) to get fresh session
-            let retryUrl = freshUrl;
-            let retryResponse;
-            let retryRedirects = 0;
-            const maxRetryRedirects = 10;
-            
-            while (retryRedirects < maxRetryRedirects) {
-              retryResponse = await fetch(retryUrl, {
-                redirect: 'manual',
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                  'Accept': '*/*',
-                }
-              });
-              
-              // Handle HTTP redirects
-              if ([301, 302, 303, 307, 308].includes(retryResponse.status)) {
-                const location = retryResponse.headers.get('location');
-                if (location) {
-                  if (location.startsWith('/')) {
-                    const urlObj = new URL(retryUrl);
-                    retryUrl = `${urlObj.protocol}//${urlObj.host}${location}`;
-                  } else if (!location.startsWith('http')) {
-                    const baseUrl = retryUrl.substring(0, retryUrl.lastIndexOf('/') + 1);
-                    retryUrl = baseUrl + location;
-                  } else {
-                    retryUrl = location;
-                  }
-                  console.log(`[Proxy] Retry: following redirect to: ${retryUrl}`);
-                  retryRedirects++;
-                  continue;
-                }
-              }
-              
-              // Handle HTML redirect pages
-              const retryContentType = retryResponse.headers.get('content-type') || '';
-              if (retryResponse.ok && retryContentType.includes('text/html')) {
-                const html = await retryResponse.text();
-                const hrefMatch = html.match(/href=["']?([^"'\s>]+\.m3u8[^"'\s>]*)["']?/i);
-                if (hrefMatch) {
-                  retryUrl = hrefMatch[1];
-                  console.log(`[Proxy] Retry: found HTML redirect to: ${retryUrl}`);
-                  retryRedirects++;
-                  continue;
-                }
-              }
-              
-              break;
-            }
-            
-            if (retryResponse && retryResponse.ok) {
-              // Cache the new session URL
-              const finalUrl = retryResponse.url || retryUrl;
-              const newBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
-              global.streamBaseUrlCache.set(decodedStreamName, {
-                baseUrl: newBaseUrl,
-                timestamp: Date.now()
-              });
-              console.log(`[Proxy] Got fresh session, cached: ${newBaseUrl}`);
-              
-              // Return the fresh manifest
-              let manifestContent;
-              const contentType = retryResponse.headers.get('content-type') || '';
-              if (!contentType.includes('text/html')) {
-                manifestContent = await retryResponse.text();
-              } else {
-                // Already consumed HTML above
-                console.error(`[Proxy] Retry ended with HTML response`);
-                return res.status(502).json({ error: 'Failed to get fresh manifest' });
-              }
-              
-              // Rewrite URLs in manifest
-              const lines = manifestContent.split('\n');
-              const rewrittenLines = lines.map(line => {
-                const trimmed = line.trim();
-                if (trimmed && !trimmed.startsWith('#')) {
-                  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-                    return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed.split('/').pop()}`;
-                  } else if (!trimmed.startsWith('/')) {
-                    return `/proxy/${encodeURIComponent(decodedStreamName)}/${trimmed}`;
-                  }
-                }
-                return line;
-              });
-              
-              res.setHeader('Access-Control-Allow-Origin', '*');
-              res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-              res.setHeader('Cache-Control', 'no-cache');
-              return res.send(rewrittenLines.join('\n'));
-            } else {
-              console.error(`[Proxy] Retry failed with status: ${retryResponse?.status}`);
-            }
-          } catch (retryErr) {
-            console.error(`[Proxy] Retry failed: ${retryErr.message}`);
-          }
-        }
-        
-        // Default 404 handling
-        console.error(`[Proxy] Upstream 404: ${currentUrl}`);
-        return res.status(404).json({ error: 'Not found' });
-      }
+      });
       
       if (!response.ok) {
-        console.error(`[Proxy] Upstream error: ${response.status}`);
-        return res.status(response.status).json({ error: `Upstream error: ${response.status}` });
+        console.error(`[Proxy] Upstream error ${response.status}: ${targetUrl}`);
+        return res.status(response.status).send('');
       }
       
-      let contentType = response.headers.get('content-type') || 'application/octet-stream';
-      if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') contentType = 'application/vnd.apple.mpegurl';
-      else if (effectiveFilePath.endsWith('.ts')) contentType = 'video/mp2t';
-      else if (effectiveFilePath.endsWith('.mpd') || filePath === 'manifest.mpd') contentType = 'application/dash+xml';
-      else if (effectiveFilePath.endsWith('.m4s')) contentType = 'video/iso.segment';
-      
+      // Set CORS headers
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', effectiveFilePath.endsWith('.ts') || effectiveFilePath.endsWith('.m4s') ? 'max-age=86400' : 'no-cache');
       
-      // For segments (.ts, .m4s), use TRUE STREAMING - zero buffering!
-      const isMediaSegment = effectiveFilePath.endsWith('.ts') || effectiveFilePath.endsWith('.m4s');
-      
-      if (isMediaSegment) {
+      // For segments - direct pipe, no processing
+      if (isSegment) {
+        res.setHeader('Content-Type', filePath.endsWith('.ts') ? 'video/mp2t' : 'video/iso.segment');
+        res.setHeader('Cache-Control', 'max-age=86400');
+        
         const contentLength = response.headers.get('content-length');
         if (contentLength) {
           res.setHeader('Content-Length', contentLength);
         }
         
-        // Disable any Express/Node buffering
-        res.setHeader('X-Accel-Buffering', 'no');
-        res.flushHeaders(); // Send headers immediately
-        
-        // Stream chunks directly as they arrive - ZERO buffering
+        // Direct pipe - fastest possible
         const reader = response.body.getReader();
         const pump = async () => {
           try {
@@ -1709,11 +1286,9 @@ app.get('/proxy/*', async (req, res) => {
                 res.end();
                 break;
               }
-              // Write chunk immediately and flush
               res.write(Buffer.from(value));
             }
           } catch (err) {
-            console.error('[Proxy] Streaming error:', err.message);
             res.end();
           }
         };
@@ -1721,78 +1296,45 @@ app.get('/proxy/*', async (req, res) => {
         return;
       }
       
-      // For manifests (.m3u8, .mpd), we need to buffer and rewrite URLs
-      const body = await response.arrayBuffer();
-      let bodyBuffer = Buffer.from(body);
+      // For manifests - rewrite URLs
+      const content = await response.text();
+      const proxyBase = `/proxy/${encodeURIComponent(streamName)}/`;
       
-      // For m3u8 playlists, rewrite URLs to go through our proxy
-      if (effectiveFilePath.endsWith('.m3u8') || filePath === 'index.ts') {
-        let m3u8Content = bodyBuffer.toString('utf8');
+      // Simple URL rewriting
+      const lines = content.split('\n');
+      const rewritten = lines.map(line => {
+        const trimmed = line.trim();
         
-        // Get the proxy base URL for this stream
-        const proxyBaseUrl = `/proxy/${encodeURIComponent(streamName)}/`;
-        
-        // Rewrite all URLs to go through our proxy
-        // CRITICAL: Preserve full path structure for audio/video variants
-        const lines = m3u8Content.split('\n');
-        const rewrittenLines = lines.map(line => {
-          const trimmedLine = line.trim();
-          
-          // Handle URI="..." in tags like EXT-X-MEDIA (audio tracks!)
-          if (trimmedLine.startsWith('#') && trimmedLine.includes('URI="')) {
-            return line.replace(/URI="([^"]+)"/g, (match, uri) => {
-              if (uri.startsWith('http://') || uri.startsWith('https://')) {
-                try {
-                  const urlObj = new URL(uri);
-                  // Keep full path from URL - critical for audio tracks
-                  const pathFromSession = urlObj.pathname;
-                  // Extract path after session ID if present
-                  const sessionMatch = pathFromSession.match(/\/session\/[^\/]+\/(.+)/);
-                  if (sessionMatch) {
-                    return `URI="${proxyBaseUrl}${sessionMatch[1]}"`;
-                  }
-                  return `URI="${proxyBaseUrl}${pathFromSession.substring(1)}"`;
-                } catch {
-                  return match;
-                }
-              }
-              // Relative URI - keep as-is with proxy prefix
-              return `URI="${proxyBaseUrl}${uri}"`;
-            });
-          }
-          if (trimmedLine.startsWith('#') || !trimmedLine) return line;
-          
-          // Rewrite segment/manifest URLs to go through proxy
-          if (trimmedLine.startsWith('http://') || trimmedLine.startsWith('https://')) {
-            try {
-              const urlObj = new URL(trimmedLine);
-              // Keep full path - extract after session ID if present
-              const pathFromSession = urlObj.pathname;
-              const sessionMatch = pathFromSession.match(/\/session\/[^\/]+\/(.+)/);
-              if (sessionMatch) {
-                return proxyBaseUrl + sessionMatch[1];
-              }
-              return proxyBaseUrl + pathFromSession.substring(1);
-            } catch {
-              return line;
+        // Handle URI="..." in tags (audio tracks)
+        if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
+          return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+            if (uri.startsWith('http')) {
+              // Extract just the filename or relative path
+              const url = new URL(uri);
+              return `URI="${proxyBase}${url.pathname.split('/').slice(-2).join('/')}"`;
             }
-          }
-          return proxyBaseUrl + trimmedLine;
-        });
+            return `URI="${proxyBase}${uri}"`;
+          });
+        }
         
-        m3u8Content = rewrittenLines.join('\n');
-        console.log(`[Proxy] Rewrote URLs through proxy: ${proxyBaseUrl}`);
-        bodyBuffer = Buffer.from(m3u8Content, 'utf8');
-      }
+        // Skip comments and empty lines
+        if (trimmed.startsWith('#') || !trimmed) return line;
+        
+        // Rewrite URLs
+        if (trimmed.startsWith('http')) {
+          const url = new URL(trimmed);
+          return proxyBase + url.pathname.split('/').slice(-2).join('/');
+        }
+        return proxyBase + trimmed;
+      });
       
-      res.send(bodyBuffer);
-    } catch (fetchError) {
-      clearTimeout(timeout);
-      if (fetchError.name === 'AbortError') {
-        console.error(`[Proxy] Timeout fetching: ${targetUrl}`);
-        return res.status(504).json({ error: 'Upstream timeout' });
-      }
-      throw fetchError;
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.send(rewritten.join('\n'));
+      
+    } catch (error) {
+      console.error(`[Proxy] Fetch error: ${error.message}`);
+      res.status(502).send('');
     }
     
   } catch (error) {
