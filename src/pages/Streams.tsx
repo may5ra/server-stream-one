@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -48,46 +49,58 @@ const getUniqueCategories = (streams: Stream[]): string[] => {
 };
 
 // Auto-detect proxy mode based on URL patterns (IP-protected CDNs)
+const protectedPatterns: { pattern: RegExp; label: string }[] = [
+  // Czech CDNs
+  { pattern: /\.cdn\.cz/i, label: "Czech CDN (.cdn.cz)" },
+  { pattern: /\.o2tv\.cz/i, label: "O2 TV Czech" },
+  { pattern: /\.sledovanitv\.cz/i, label: "Sledovaní TV" },
+  { pattern: /\.telly\.cz/i, label: "Telly.cz" },
+  { pattern: /\.kuki\.cz/i, label: "Kuki.cz" },
+  { pattern: /\.magiogo\.net/i, label: "Magio Go" },
+  { pattern: /\.antik\.sk/i, label: "Antik SK" },
+  // Slovak CDNs
+  { pattern: /\.skylink\.sk/i, label: "Skylink SK" },
+  { pattern: /\.digi\.sk/i, label: "Digi SK" },
+  // Other protected patterns
+  { pattern: /cdnbg\./i, label: "Bulgarian CDN" },
+  { pattern: /\.digi-online\./i, label: "Digi Online" },
+  { pattern: /ott\.zetcdn\./i, label: "ZetCDN OTT" },
+  { pattern: /\.gcs-cdn\./i, label: "GCS CDN" },
+  { pattern: /\.akamaized\.net.*token/i, label: "Akamai (token protected)" },
+  { pattern: /\.cloudfront\.net.*token/i, label: "CloudFront (token protected)" },
+  // Nova and similar
+  { pattern: /nova\./i, label: "Nova TV" },
+  { pattern: /novaplus\./i, label: "Nova Plus" },
+  { pattern: /\.voyo\./i, label: "Voyo" },
+  { pattern: /\.markiza\./i, label: "Markíza" },
+  // Generic patterns for protected streams
+  { pattern: /hdauth=/i, label: "HD Auth token" },
+  { pattern: /wmsAuthSign=/i, label: "WMS Auth signature" },
+  { pattern: /token=/i, label: "Token authentication" },
+];
+
 const detectProxyMode = (url: string): string => {
   if (!url) return "direct";
   
-  const protectedPatterns = [
-    // Czech CDNs
-    /\.cdn\.cz/i,
-    /\.o2tv\.cz/i,
-    /\.sledovanitv\.cz/i,
-    /\.telly\.cz/i,
-    /\.kuki\.cz/i,
-    /\.magiogo\.net/i,
-    /\.antik\.sk/i,
-    // Slovak CDNs
-    /\.skylink\.sk/i,
-    /\.digi\.sk/i,
-    // Other protected patterns
-    /cdnbg\./i,
-    /\.digi-online\./i,
-    /ott\.zetcdn\./i,
-    /\.gcs-cdn\./i,
-    /\.akamaized\.net.*token/i,
-    /\.cloudfront\.net.*token/i,
-    // Nova and similar
-    /nova\./i,
-    /novaplus\./i,
-    /\.voyo\./i,
-    /\.markiza\./i,
-    // Generic patterns for protected streams
-    /hdauth=/i,
-    /wmsAuthSign=/i,
-    /token=/i,
-  ];
-  
-  for (const pattern of protectedPatterns) {
+  for (const { pattern } of protectedPatterns) {
     if (pattern.test(url)) {
-      return "hls"; // Use HLS proxy for protected sources
+      return "hls";
     }
   }
   
   return "direct";
+};
+
+const getDetectedPatternLabel = (url: string): string | null => {
+  if (!url) return null;
+  
+  for (const { pattern, label } of protectedPatterns) {
+    if (pattern.test(url)) {
+      return label;
+    }
+  }
+  
+  return null;
 };
 
 const Streams = () => {
@@ -507,10 +520,20 @@ const Streams = () => {
                       <div className="flex items-center gap-2">
                         <Label>Proxy Mode</Label>
                         {newStream.input_url && detectProxyMode(newStream.input_url) !== "direct" && (
-                          <Badge variant="outline" className="text-xs bg-warning/20 text-warning border-warning/30">
-                            <Sparkles className="h-3 w-3 mr-1" />
-                            Auto-detected
-                          </Badge>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge variant="outline" className="text-xs bg-warning/20 text-warning border-warning/30 cursor-help">
+                                  <Sparkles className="h-3 w-3 mr-1" />
+                                  Auto-detected
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="font-medium">Zaštićeni izvor detektiran</p>
+                                <p className="text-xs text-muted-foreground">Pattern: {getDetectedPatternLabel(newStream.input_url)}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground mb-2">Način preusmjeravanja streama</p>
