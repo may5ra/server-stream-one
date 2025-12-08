@@ -2115,17 +2115,79 @@ app.get('/movie/:username/:password/:vodId', async (req, res) => {
     
     // Get VOD content - extract ID without extension
     const cleanId = vodId.replace(/\.[^/.]+$/, '');
-    const result = await pool.query('SELECT stream_url FROM vod_content WHERE id = $1', [cleanId]);
+    const result = await pool.query('SELECT stream_url, container_extension FROM vod_content WHERE id = $1', [cleanId]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Movie not found' });
     }
     
     const streamUrl = result.rows[0].stream_url;
-    console.log(`[Movie] Redirecting to: ${streamUrl}`);
+    const ext = result.rows[0].container_extension || 'mp4';
+    console.log(`[Movie] Proxying: ${streamUrl}`);
     
-    // Redirect to actual stream URL
-    res.redirect(302, streamUrl);
+    // Proxy the video stream with Range support
+    const https = require('https');
+    const http = require('http');
+    const url = require('url');
+    
+    const parsedUrl = url.parse(streamUrl);
+    const protocol = parsedUrl.protocol === 'https:' ? https : http;
+    
+    const proxyHeaders = {
+      'User-Agent': 'StreamPanel/1.0'
+    };
+    
+    // Pass through Range header for seeking support
+    if (req.headers.range) {
+      proxyHeaders['Range'] = req.headers.range;
+    }
+    
+    const proxyReq = protocol.request({
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port,
+      path: parsedUrl.path,
+      method: 'GET',
+      headers: proxyHeaders
+    }, (proxyRes) => {
+      // Set content type based on extension
+      const contentTypes = {
+        'mkv': 'video/x-matroska',
+        'mp4': 'video/mp4',
+        'avi': 'video/x-msvideo',
+        'mov': 'video/quicktime',
+        'wmv': 'video/x-ms-wmv',
+        'flv': 'video/x-flv',
+        'webm': 'video/webm',
+        'ts': 'video/mp2t'
+      };
+      
+      res.setHeader('Content-Type', contentTypes[ext] || 'video/mp4');
+      res.setHeader('Accept-Ranges', 'bytes');
+      
+      // Pass through important headers
+      if (proxyRes.headers['content-length']) {
+        res.setHeader('Content-Length', proxyRes.headers['content-length']);
+      }
+      if (proxyRes.headers['content-range']) {
+        res.setHeader('Content-Range', proxyRes.headers['content-range']);
+      }
+      
+      res.status(proxyRes.statusCode);
+      proxyRes.pipe(res);
+    });
+    
+    proxyReq.on('error', (err) => {
+      console.error('[Movie] Proxy error:', err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Failed to fetch movie' });
+      }
+    });
+    
+    req.on('close', () => {
+      proxyReq.destroy();
+    });
+    
+    proxyReq.end();
     
   } catch (error) {
     console.error('[Movie] Error:', error);
@@ -2166,17 +2228,79 @@ app.get('/series/:username/:password/:episodeId', async (req, res) => {
     
     // Get episode - extract ID without extension
     const cleanId = episodeId.replace(/\.[^/.]+$/, '');
-    const result = await pool.query('SELECT stream_url FROM series_episodes WHERE id = $1', [cleanId]);
+    const result = await pool.query('SELECT stream_url, container_extension FROM series_episodes WHERE id = $1', [cleanId]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Episode not found' });
     }
     
     const streamUrl = result.rows[0].stream_url;
-    console.log(`[Series] Redirecting to: ${streamUrl}`);
+    const ext = result.rows[0].container_extension || 'mp4';
+    console.log(`[Series] Proxying: ${streamUrl}`);
     
-    // Redirect to actual stream URL
-    res.redirect(302, streamUrl);
+    // Proxy the video stream with Range support
+    const https = require('https');
+    const http = require('http');
+    const url = require('url');
+    
+    const parsedUrl = url.parse(streamUrl);
+    const protocol = parsedUrl.protocol === 'https:' ? https : http;
+    
+    const proxyHeaders = {
+      'User-Agent': 'StreamPanel/1.0'
+    };
+    
+    // Pass through Range header for seeking support
+    if (req.headers.range) {
+      proxyHeaders['Range'] = req.headers.range;
+    }
+    
+    const proxyReq = protocol.request({
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port,
+      path: parsedUrl.path,
+      method: 'GET',
+      headers: proxyHeaders
+    }, (proxyRes) => {
+      // Set content type based on extension
+      const contentTypes = {
+        'mkv': 'video/x-matroska',
+        'mp4': 'video/mp4',
+        'avi': 'video/x-msvideo',
+        'mov': 'video/quicktime',
+        'wmv': 'video/x-ms-wmv',
+        'flv': 'video/x-flv',
+        'webm': 'video/webm',
+        'ts': 'video/mp2t'
+      };
+      
+      res.setHeader('Content-Type', contentTypes[ext] || 'video/mp4');
+      res.setHeader('Accept-Ranges', 'bytes');
+      
+      // Pass through important headers
+      if (proxyRes.headers['content-length']) {
+        res.setHeader('Content-Length', proxyRes.headers['content-length']);
+      }
+      if (proxyRes.headers['content-range']) {
+        res.setHeader('Content-Range', proxyRes.headers['content-range']);
+      }
+      
+      res.status(proxyRes.statusCode);
+      proxyRes.pipe(res);
+    });
+    
+    proxyReq.on('error', (err) => {
+      console.error('[Series] Proxy error:', err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Failed to fetch episode' });
+      }
+    });
+    
+    req.on('close', () => {
+      proxyReq.destroy();
+    });
+    
+    proxyReq.end();
     
   } catch (error) {
     console.error('[Series] Error:', error);
