@@ -1222,16 +1222,25 @@ app.get('/proxy/*', async (req, res) => {
       return res.status(400).json({ error: 'Stream has no source URL' });
     }
     
-    // ==================== SIMPLIFIED DIRECT PROXY ====================
-    // Simple approach: 
-    // 1. For manifests: fetch, rewrite URLs, return
-    // 2. For segments: direct pipe through
+    // ==================== XACCEL-STYLE DIRECT PROXY ====================
+    // Use base64 encoded URLs - no path rewriting needed!
+    // This is how xaccel-codec and similar panels work
     
     const inputUrl = stream.input_url.trim();
     let targetUrl;
     
-    // Build target URL simply
-    if (filePath === 'index.m3u8' || filePath === 'index.ts') {
+    // Check if filePath is a base64 encoded URL (from our rewritten manifest)
+    if (filePath.startsWith('b64/')) {
+      // Decode base64 URL
+      try {
+        const encoded = filePath.substring(4);
+        targetUrl = Buffer.from(decodeURIComponent(encoded), 'base64').toString('utf-8');
+        console.log(`[Proxy] Decoded b64 URL: ${targetUrl.substring(0, 100)}...`);
+      } catch (e) {
+        console.error('[Proxy] Failed to decode b64 URL:', e.message);
+        return res.status(400).send('Invalid encoded URL');
+      }
+    } else if (filePath === 'index.m3u8' || filePath === '') {
       // Main manifest - use input URL directly
       if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd')) {
         targetUrl = inputUrl;
@@ -1239,17 +1248,17 @@ app.get('/proxy/*', async (req, res) => {
         targetUrl = inputUrl.replace(/\/$/, '') + '/index.m3u8';
       }
     } else {
-      // Segments and sub-manifests - build from base URL
+      // Legacy: direct path (for backwards compatibility)
       const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd')
         ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
         : inputUrl.replace(/\/$/, '') + '/';
       targetUrl = baseUrl + filePath;
     }
     
-    console.log(`[Proxy] ${isSegment ? 'Segment' : 'Manifest'}: ${targetUrl}`);
+    console.log(`[Proxy] ${isSegment ? 'Segment' : 'Manifest'}: ${targetUrl.substring(0, 150)}`);
     
     try {
-      // Simple fetch with redirect following
+      // Fetch with redirect following
       const response = await fetch(targetUrl, {
         redirect: 'follow',
         headers: {
@@ -1259,7 +1268,7 @@ app.get('/proxy/*', async (req, res) => {
       });
       
       if (!response.ok) {
-        console.error(`[Proxy] Upstream error ${response.status}: ${targetUrl}`);
+        console.error(`[Proxy] Upstream error ${response.status}: ${targetUrl.substring(0, 100)}`);
         return res.status(response.status).send('');
       }
       
@@ -1276,7 +1285,7 @@ app.get('/proxy/*', async (req, res) => {
           res.setHeader('Content-Length', contentLength);
         }
         
-        // Direct pipe - fastest possible
+        // Direct pipe
         const reader = response.body.getReader();
         const pump = async () => {
           try {
@@ -1296,50 +1305,54 @@ app.get('/proxy/*', async (req, res) => {
         return;
       }
       
-      // For manifests - rewrite URLs
+      // For manifests - rewrite URLs using base64 encoding
       const content = await response.text();
       const proxyBase = `/proxy/${encodeURIComponent(streamName)}/`;
       
-      // Get base path from final URL (after redirects)
+      // Get base URL from final URL (after redirects)
       const finalUrl = response.url || targetUrl;
-      const finalUrlObj = new URL(finalUrl);
-      const basePath = finalUrlObj.pathname.substring(0, finalUrlObj.pathname.lastIndexOf('/') + 1);
+      const finalUrlBase = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
       
-      // Simple URL rewriting - preserve full paths
+      // Base64 encode all URLs - simple and reliable!
       const lines = content.split('\n');
       const rewritten = lines.map(line => {
         const trimmed = line.trim();
         
-        // Handle URI="..." in tags (audio tracks)
+        // Handle URI="..." in tags (audio tracks, keys, etc)
         if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
           return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+            let fullUrl;
             if (uri.startsWith('http')) {
-              // Full URL - keep the entire path
-              const url = new URL(uri);
-              return `URI="${proxyBase}${url.pathname.substring(1)}"`;
+              fullUrl = uri;
+            } else if (uri.startsWith('/')) {
+              // Absolute path - need origin
+              const urlObj = new URL(finalUrl);
+              fullUrl = urlObj.origin + uri;
+            } else {
+              // Relative path
+              fullUrl = finalUrlBase + uri;
             }
-            if (uri.startsWith('/')) {
-              // Absolute path
-              return `URI="${proxyBase}${uri.substring(1)}"`;
-            }
-            // Relative path - resolve against base
-            return `URI="${proxyBase}${basePath.substring(1)}${uri}"`;
+            const encoded = Buffer.from(fullUrl).toString('base64');
+            return `URI="${proxyBase}b64/${encodeURIComponent(encoded)}"`;
           });
         }
         
         // Skip comments and empty lines
         if (trimmed.startsWith('#') || !trimmed) return line;
         
-        // Rewrite URLs - keep full path structure
+        // Rewrite all URLs using base64
+        let fullUrl;
         if (trimmed.startsWith('http')) {
-          const url = new URL(trimmed);
-          return proxyBase + url.pathname.substring(1);
+          fullUrl = trimmed;
+        } else if (trimmed.startsWith('/')) {
+          const urlObj = new URL(finalUrl);
+          fullUrl = urlObj.origin + trimmed;
+        } else {
+          fullUrl = finalUrlBase + trimmed;
         }
-        if (trimmed.startsWith('/')) {
-          return proxyBase + trimmed.substring(1);
-        }
-        // Relative - resolve against base path
-        return proxyBase + basePath.substring(1) + trimmed;
+        
+        const encoded = Buffer.from(fullUrl).toString('base64');
+        return proxyBase + 'b64/' + encodeURIComponent(encoded);
       });
       
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
@@ -1347,7 +1360,7 @@ app.get('/proxy/*', async (req, res) => {
       res.send(rewritten.join('\n'));
       
     } catch (error) {
-      console.error(`[Proxy] Fetch error: ${error.message}`);
+      console.error('[Proxy] Fetch error:', error.message);
       res.status(502).send('');
     }
     
