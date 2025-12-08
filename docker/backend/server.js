@@ -1363,29 +1363,16 @@ app.get('/proxy/*', async (req, res) => {
       // For manifests - rewrite URLs using base64 encoding
       const content = await response.text();
       
-      // Build FULL URL base for proxy
-      // ALWAYS use X-Forwarded-Host if available (set by nginx), then SERVER_DOMAIN, then Host header
+      // Build FULL URL base for proxy - PRIORITIZE X-Forwarded-Host from nginx
       const forwardedHost = req.get('x-forwarded-host');
       const hostHeader = req.get('host');
-      const serverDomain = forwardedHost || process.env.SERVER_DOMAIN || hostHeader || 'localhost';
-      const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+      // CRITICAL: Use forwarded host first, it contains the actual client-facing domain
+      const actualHost = forwardedHost || hostHeader || process.env.SERVER_DOMAIN || 'localhost';
+      const protocol = req.get('x-forwarded-proto') || 'http';
       
-      // Remove any port from domain if SERVER_DOMAIN doesn't have one
-      const domainWithoutPort = serverDomain.split(':')[0];
-      const httpPort = process.env.HTTP_PORT || '80';
-      const usePort = (httpPort !== '80' && httpPort !== '443') ? `:${httpPort}` : '';
-      
-      // Use the forwarded host directly if available (it includes correct port from nginx)
-      let proxyBase;
-      if (forwardedHost) {
-        proxyBase = `${protocol}://${forwardedHost}/proxy/${encodeURIComponent(streamName)}/`;
-      } else if (process.env.SERVER_DOMAIN) {
-        proxyBase = `http://${process.env.SERVER_DOMAIN}${usePort}/proxy/${encodeURIComponent(streamName)}/`;
-      } else {
-        proxyBase = `${protocol}://${hostHeader}/proxy/${encodeURIComponent(streamName)}/`;
-      }
-      console.log(`[Proxy] Headers: x-forwarded-host=${forwardedHost}, host=${hostHeader}, SERVER_DOMAIN=${process.env.SERVER_DOMAIN}`);
-      console.log(`[Proxy] Using proxyBase: ${proxyBase}`);
+      // Simple: use actualHost as-is (it already includes port if needed)
+      const proxyBase = `${protocol}://${actualHost}/proxy/${encodeURIComponent(streamName)}/`;
+      console.log(`[Proxy] Host: ${actualHost}, Protocol: ${protocol}, ProxyBase: ${proxyBase}`);
       
       // Get base URL from final URL (after redirects)
       const finalUrl = response.url || targetUrl;
