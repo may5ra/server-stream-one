@@ -1131,8 +1131,24 @@ app.get('/proxy/*', async (req, res) => {
       filePath = parts.slice(1).join('/') || 'index.m3u8';
     }
     
-    // Only log main playlist requests, not every .ts segment
-    const isSegment = filePath.endsWith('.ts') || filePath.endsWith('.m4s');
+    // Detect segment vs manifest - check both filePath AND decoded b64 URL
+    let isSegment = filePath.endsWith('.ts') || filePath.endsWith('.m4s') || 
+                    filePath.endsWith('.m4a') || filePath.endsWith('.aac') ||
+                    filePath.endsWith('.mp4');
+    
+    // If b64 encoded, check the actual URL extension
+    if (filePath.startsWith('b64/')) {
+      try {
+        const encoded = filePath.substring(4);
+        const decodedUrl = Buffer.from(decodeURIComponent(encoded), 'base64').toString('utf-8').toLowerCase();
+        isSegment = decodedUrl.endsWith('.ts') || decodedUrl.endsWith('.m4s') ||
+                    decodedUrl.endsWith('.m4a') || decodedUrl.endsWith('.aac') ||
+                    decodedUrl.endsWith('.mp4');
+      } catch (e) {
+        // Ignore decode errors, will be handled later
+      }
+    }
+    
     if (!isSegment) {
       console.log(`[Proxy] ${isAuthenticated ? 'Auth' : 'Legacy'}: stream=${streamName}, file=${filePath}`);
     }
