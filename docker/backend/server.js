@@ -1561,29 +1561,16 @@ app.get('/:username/:password/:streamName', async (req, res) => {
       return res.status(400).send('Stream has no source URL');
     }
     
-    // Redirect to actual stream
-    const targetUrl = stream.input_url.trim();
-    console.log(`[Stream] Redirecting to: ${targetUrl}`);
+    // IMPORTANT: Redirect to proxy endpoint which rewrites URLs properly!
+    // This ensures audio/video segments are proxied correctly
+    const serverDomain = process.env.SERVER_DOMAIN || req.get('host') || 'localhost';
+    const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const proxyUrl = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/index.m3u8`;
     
-    // Proxy the stream content
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': req.headers['user-agent'] || 'StreamPanel/1.0'
-      }
-    });
+    console.log(`[Stream] Redirecting to proxy: ${proxyUrl}`);
     
-    if (!response.ok) {
-      return res.status(response.status).send('Stream unavailable');
-    }
-    
-    // Set content type
-    const contentType = response.headers.get('content-type') || 'application/vnd.apple.mpegurl';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    
-    // Stream the content
-    const body = await response.arrayBuffer();
-    res.send(Buffer.from(body));
+    // 302 redirect to proxy
+    res.redirect(302, proxyUrl);
     
   } catch (error) {
     console.error('[Stream] Error:', error);
