@@ -79,6 +79,17 @@ function isManifestUrl(inputUrl: string): boolean {
   return lowerUrl.endsWith('.mpd') || lowerUrl.endsWith('.m3u8');
 }
 
+// Check if file is a segment (not a manifest)
+function isSegmentFile(filePath: string): boolean {
+  const lowerPath = filePath.toLowerCase();
+  return lowerPath.endsWith('.ts') || 
+         lowerPath.endsWith('.m4s') || 
+         lowerPath.endsWith('.m4a') || 
+         lowerPath.endsWith('.m4v') ||
+         lowerPath.endsWith('.mp4') ||
+         lowerPath.endsWith('.aac');
+}
+
 // Get default file for stream type
 function getDefaultFile(inputUrl: string): string {
   const lowerUrl = inputUrl.toLowerCase();
@@ -92,6 +103,20 @@ function getDefaultFile(inputUrl: string): string {
   return 'index.m3u8';
 }
 
+// Base64 encode/decode for URL safety
+function encodeUrl(url: string): string {
+  return btoa(url).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeUrl(encoded: string): string {
+  // Add back padding
+  let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  return atob(base64);
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -103,6 +128,7 @@ Deno.serve(async (req) => {
     // Expected path formats:
     // New: /stream-proxy/{username}/{password}/{stream_name}/{file_path}
     // Legacy: /stream-proxy/{stream_name}/{file_path}
+    // Base64: /stream-proxy/{username}/{password}/{stream_name}/b64/{encoded_url}
     const pathParts = url.pathname.replace('/stream-proxy/', '').split('/')
     
     if (pathParts.length < 1 || !pathParts[0]) {
@@ -252,10 +278,6 @@ Deno.serve(async (req) => {
       })
     }
 
-    // NOTE: Stream status check removed from proxy
-    // Status is now controlled via Xtream API - if stream is not 'live', 
-    // it won't appear in player's channel list, so users won't try to play it
-    // But if someone has the direct URL, they can still access the stream
     console.log(`[Proxy] Stream found: ${streamName}, status: ${stream.status}`);
 
     if (!stream.input_url) {
@@ -269,53 +291,64 @@ Deno.serve(async (req) => {
     const inputUrl = stream.input_url.trim();
     const streamType = getStreamType(inputUrl, filePath);
     
-    // If no file path specified, use default based on input URL
-    if (!filePath) {
-      filePath = getDefaultFile(inputUrl);
-    }
-    
-    console.log(`[Proxy] Stream type: ${streamType}, input_type: ${stream.input_type}`);
-
-    // Construct the target URL
+    // Check if this is a base64 encoded URL request
     let targetUrl: string;
+    let isSegment = false;
     
-    if (inputUrl.endsWith('.mpd') || inputUrl.endsWith('.m3u8')) {
-      // Input URL is the manifest itself
-      if (!filePath || filePath === getDefaultFile(inputUrl)) {
+    // Build proxy base URL for rewriting
+    const proxyBase = username && password 
+      ? `/stream-proxy/${username}/${password}/${encodeURIComponent(streamName)}/`
+      : `/stream-proxy/${encodeURIComponent(streamName)}/`;
+
+    if (filePath.startsWith('b64/')) {
+      // Decode base64 URL
+      try {
+        const encoded = filePath.substring(4);
+        targetUrl = decodeUrl(decodeURIComponent(encoded));
+        isSegment = isSegmentFile(targetUrl);
+        console.log(`[Proxy] Decoded b64 URL: ${targetUrl.substring(0, 100)}...`);
+      } catch (e) {
+        console.error('[Proxy] Failed to decode b64 URL:', e);
+        return new Response(JSON.stringify({ error: 'Invalid encoded URL' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    } else if (!filePath || filePath === 'index.m3u8' || filePath === 'manifest.mpd') {
+      // Main manifest request
+      if (inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd')) {
         targetUrl = inputUrl;
       } else {
-        const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-        targetUrl = `${baseUrl}${filePath}`;
+        targetUrl = inputUrl.replace(/\/$/, '') + '/' + getDefaultFile(inputUrl);
       }
-    } else if (inputUrl.endsWith('/')) {
-      targetUrl = `${inputUrl}${filePath}`;
-    } else if (inputUrl.endsWith('.ts') || inputUrl.endsWith('.m4s')) {
-      const baseUrl = inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1);
-      targetUrl = `${baseUrl}${filePath}`;
+      isSegment = false;
     } else {
-      targetUrl = filePath ? `${inputUrl}/${filePath}` : inputUrl;
+      // Legacy direct path request
+      isSegment = isSegmentFile(filePath);
+      const baseUrl = inputUrl.endsWith('.m3u8') || inputUrl.endsWith('.mpd')
+        ? inputUrl.substring(0, inputUrl.lastIndexOf('/') + 1)
+        : inputUrl.replace(/\/$/, '') + '/';
+      targetUrl = baseUrl + filePath;
     }
 
-    console.log(`[Proxy] Fetching: ${targetUrl}`);
+    console.log(`[Proxy] ${isSegment ? 'Segment' : 'Manifest'}: ${targetUrl.substring(0, 150)}`);
 
     // Helper function to extract redirect URL from HTML
     const extractRedirectUrl = (html: string): string | null => {
-      // Look for href="..." pattern in HTML redirect pages
       const hrefMatch = html.match(/href=["']?([^"'\s>]+\.m3u8[^"'\s>]*)["']?/i);
       if (hrefMatch) return hrefMatch[1];
       
-      // Also try meta refresh pattern
       const metaMatch = html.match(/content=["'][^"']*url=([^"'\s>]+)["']/i);
       if (metaMatch) return metaMatch[1];
       
       return null;
     };
 
-    // Fetch from the original source - follow redirects
+    // Fetch from the original source
     let response = await fetch(targetUrl, {
-      redirect: 'follow', // IMPORTANT: Follow HTTP redirects (302, 301, etc.)
+      redirect: 'follow',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
         'Accept': '*/*',
         'Accept-Encoding': 'identity',
       }
@@ -329,11 +362,10 @@ Deno.serve(async (req) => {
       
       if (redirectUrl) {
         console.log(`[Proxy] Found HTML redirect, following to: ${redirectUrl}`);
-        // Follow the redirect URL
         response = await fetch(redirectUrl, {
           redirect: 'follow',
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
             'Accept': '*/*',
             'Accept-Encoding': 'identity',
           }
@@ -355,32 +387,81 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Get content type
-    const contentType = getContentType(filePath || targetUrl, streamType);
-    console.log(`[Proxy] Content-Type: ${contentType}`);
-
-    // Get the response body
-    const body = await response.arrayBuffer();
-
-    // Determine cache policy based on file type
-    let cacheControl = 'no-cache';
-    const lowerPath = (filePath || targetUrl).toLowerCase();
-    
-    if (lowerPath.endsWith('.ts') || lowerPath.endsWith('.m4s') || lowerPath.endsWith('.mp4')) {
-      // Segments can be cached longer
-      cacheControl = 'max-age=86400';
-    } else if (lowerPath.endsWith('.mpd') || lowerPath.endsWith('.m3u8')) {
-      // Manifests should not be cached
-      cacheControl = 'no-cache, no-store, must-revalidate';
+    // For segments - return directly without processing
+    if (isSegment) {
+      const contentType = getContentType(filePath || targetUrl, streamType);
+      console.log(`[Proxy] Returning segment with Content-Type: ${contentType}`);
+      
+      return new Response(response.body, {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': contentType,
+          'Cache-Control': 'max-age=86400',
+        }
+      });
     }
 
-    // Return the proxied content
-    return new Response(body, {
+    // For manifests - rewrite URLs using base64 encoding
+    const content = await response.text();
+    const finalUrl = response.url || targetUrl;
+    const finalUrlBase = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
+    
+    console.log(`[Proxy] Rewriting manifest URLs with base: ${finalUrlBase}`);
+
+    // Rewrite all URLs in manifest using base64
+    const lines = content.split('\n');
+    const rewritten = lines.map(line => {
+      const trimmed = line.trim();
+      
+      // Handle URI="..." in HLS tags (audio tracks, keys, subtitles, etc)
+      if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
+        return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+          let fullUrl: string;
+          if (uri.startsWith('http://') || uri.startsWith('https://')) {
+            fullUrl = uri;
+          } else if (uri.startsWith('/')) {
+            // Absolute path - need origin
+            const urlObj = new URL(finalUrl);
+            fullUrl = urlObj.origin + uri;
+          } else {
+            // Relative path
+            fullUrl = finalUrlBase + uri;
+          }
+          const encoded = encodeUrl(fullUrl);
+          return `URI="${proxyBase}b64/${encodeURIComponent(encoded)}"`;
+        });
+      }
+      
+      // Skip comments and empty lines
+      if (trimmed.startsWith('#') || !trimmed) return line;
+      
+      // Rewrite segment/playlist URLs
+      let fullUrl: string;
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        fullUrl = trimmed;
+      } else if (trimmed.startsWith('/')) {
+        const urlObj = new URL(finalUrl);
+        fullUrl = urlObj.origin + trimmed;
+      } else {
+        fullUrl = finalUrlBase + trimmed;
+      }
+      
+      const encoded = encodeUrl(fullUrl);
+      return proxyBase + 'b64/' + encodeURIComponent(encoded);
+    });
+
+    const rewrittenContent = rewritten.join('\n');
+    const contentType = getContentType(filePath || targetUrl, streamType);
+    
+    console.log(`[Proxy] Manifest rewritten, Content-Type: ${contentType}`);
+
+    return new Response(rewrittenContent, {
       status: 200,
       headers: {
         ...corsHeaders,
         'Content-Type': contentType,
-        'Cache-Control': cacheControl,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
       }
     });
 
