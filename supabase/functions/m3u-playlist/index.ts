@@ -47,6 +47,12 @@ Deno.serve(async (req) => {
     return new Response("Account expired", { status: 403, headers: corsHeaders });
   }
 
+  // Get user's bouquets (empty array means access to all content)
+  const userBouquets: string[] = user.bouquets || [];
+  const hasAllAccess = userBouquets.length === 0;
+  
+  console.log(`[M3U Playlist] User ${username} bouquets: ${hasAllAccess ? 'ALL' : userBouquets.join(', ')}`);
+
   // Get server settings - check both server_domain and server_ip for compatibility
   const { data: serverDomainSetting } = await supabase
     .from("panel_settings")
@@ -94,10 +100,14 @@ Deno.serve(async (req) => {
   // Build M3U playlist
   let m3u = "#EXTM3U\n";
   
-  // Add live streams
+  // Add live streams - filter by user's bouquets
   const groupedStreams: Record<string, any[]> = {};
   (streams || []).forEach(stream => {
     const group = stream.category || "Uncategorized";
+    // Check if user has access to this category
+    if (!hasAllAccess && !userBouquets.includes(group)) {
+      return; // Skip this stream
+    }
     if (!groupedStreams[group]) groupedStreams[group] = [];
     groupedStreams[group].push(stream);
   });
@@ -147,10 +157,14 @@ Deno.serve(async (req) => {
     });
   });
   
-  // Add VOD
+  // Add VOD - filter by user's bouquets
   if (vods && vods.length > 0) {
     (vods || []).forEach(vod => {
       const group = (vod as any).vod_categories?.name || "Movies";
+      // Check if user has access to this category
+      if (!hasAllAccess && !userBouquets.includes(group)) {
+        return; // Skip this VOD
+      }
       const icon = vod.cover_url || "";
       
       if (type === "m3u_plus") {
@@ -163,10 +177,14 @@ Deno.serve(async (req) => {
     });
   }
   
-  // Add Series
+  // Add Series - filter by user's bouquets
   if (seriesList && seriesList.length > 0) {
     (seriesList || []).forEach(series => {
       const group = (series as any).series_categories?.name || "Series";
+      // Check if user has access to this category
+      if (!hasAllAccess && !userBouquets.includes(group)) {
+        return; // Skip this series
+      }
       const episodes = (series as any).series_episodes || [];
       
       episodes.forEach((ep: any) => {

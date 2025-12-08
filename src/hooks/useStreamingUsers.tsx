@@ -14,6 +14,7 @@ export interface StreamingUser {
   last_active: string | null;
   created_at: string;
   reseller_id?: string | null;
+  bouquets?: string[];
 }
 
 export const useStreamingUsers = () => {
@@ -114,10 +115,19 @@ export const useStreamingUsers = () => {
     password: string;
     max_connections: number;
     expiry_date: string;
+    bouquets?: string[];
   }) => {
     const { data, error } = await supabase
       .from("streaming_users")
-      .insert([{ ...user, status: "offline", connections: 0 }])
+      .insert([{ 
+        username: user.username,
+        password: user.password,
+        max_connections: user.max_connections,
+        expiry_date: user.expiry_date,
+        bouquets: user.bouquets || [],
+        status: "offline", 
+        connections: 0 
+      }])
       .select()
       .single();
 
