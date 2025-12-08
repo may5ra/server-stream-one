@@ -116,21 +116,33 @@ Deno.serve(async (req) => {
       const encodedName = encodeURIComponent(stream.name);
       const proxyMode = stream.proxy_mode || "direct";
       
-      // Generate URL based on proxy_mode setting
+      console.log(`[M3U] Stream: ${stream.name}, proxy_mode: ${proxyMode}, input_type: ${stream.input_type}`);
+      
+      // Generate URL based on proxy_mode setting - proxy_mode takes priority over input_type
       if (proxyMode === "hls") {
         // HLS proxy mode - FFmpeg re-stream via /hls/ endpoint
         m3u += `http://${serverUrl}:${httpPort}/hls/${username}/${password}/${encodedName}/index.m3u8\n`;
       } else if (proxyMode === "ffmpeg") {
         // FFmpeg mode - direct MPEG-TS stream
         m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
-      } else if (stream.input_type === "hls" || stream.input_type === "mpd") {
-        // Direct mode for HLS/MPD - use simple proxy
-        const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
-        m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
+      } else if (proxyMode === "direct") {
+        // Direct proxy mode - pass through original stream
+        if (stream.input_type === "hls" || stream.input_type === "mpd") {
+          const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
+          m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
+        } else {
+          const ext = output === "ts" ? ".ts" : ".m3u8";
+          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
+        }
       } else {
-        // Direct mode for RTMP/SRT/other streams
-        const ext = output === "ts" ? ".ts" : ".m3u8";
-        m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
+        // Fallback - use proxy for HLS/MPD, live for others
+        if (stream.input_type === "hls" || stream.input_type === "mpd") {
+          const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
+          m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
+        } else {
+          const ext = output === "ts" ? ".ts" : ".m3u8";
+          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}${ext}\n`;
+        }
       }
     });
   });
