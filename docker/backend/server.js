@@ -1084,8 +1084,29 @@ app.get('/proxy/*', async (req, res) => {
     let isAuthenticated = false;
     let user = null;
     
-    // Fast path: Check if looks like authenticated format (3+ parts)
-    if (parts.length >= 3) {
+    // FIRST: Check if this is a legacy format (streamName/path)
+    // Legacy format: /proxy/StreamName/index.m3u8 or /proxy/StreamName/b64/xxx
+    // Auth format: /proxy/username/password/StreamName/path
+    
+    // Detect if second part looks like "b64" or a file - that means legacy format
+    const secondPart = parts[1] || '';
+    const isLegacyFormat = parts.length >= 2 && (
+      secondPart === 'b64' || 
+      secondPart.startsWith('b64/') ||
+      secondPart.endsWith('.m3u8') ||
+      secondPart.endsWith('.ts') ||
+      secondPart.endsWith('.m4s') ||
+      secondPart.endsWith('.mpd') ||
+      secondPart === 'index.m3u8'
+    );
+    
+    if (isLegacyFormat) {
+      // Legacy format: streamName/filePath
+      streamName = parts[0];
+      filePath = parts.slice(1).join('/') || 'index.m3u8';
+      console.log(`[Proxy] Legacy format detected: stream=${streamName}, file=${filePath.substring(0, 50)}`);
+    } else if (parts.length >= 3) {
+      // Try authenticated format
       const potentialUsername = parts[0];
       const potentialPassword = parts[1];
       
@@ -1123,10 +1144,14 @@ app.get('/proxy/*', async (req, res) => {
           }
         }
       }
-    }
-    
-    // If not authenticated format, treat as legacy
-    if (!isAuthenticated) {
+      
+      // If auth failed, treat as legacy format
+      if (!isAuthenticated) {
+        streamName = parts[0];
+        filePath = parts.slice(1).join('/') || 'index.m3u8';
+      }
+    } else {
+      // Simple format: just streamName
       streamName = parts[0];
       filePath = parts.slice(1).join('/') || 'index.m3u8';
     }
