@@ -1577,16 +1577,80 @@ app.get('/:username/:password/:streamName', async (req, res) => {
       return res.status(400).send('Stream has no source URL');
     }
     
-    // IMPORTANT: Redirect to proxy endpoint which rewrites URLs properly!
-    // This ensures audio/video segments are proxied correctly
+    // Proxy the manifest directly (don't redirect - some players don't follow redirects)
     const serverDomain = process.env.SERVER_DOMAIN || req.get('host') || 'localhost';
     const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-    const proxyUrl = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/index.m3u8`;
+    const proxyBase = `${protocol}://${serverDomain}/proxy/${encodeURIComponent(streamName)}/`;
     
-    console.log(`[Stream] Redirecting to proxy: ${proxyUrl}`);
+    const inputUrl = stream.input_url.trim();
+    const targetUrl = inputUrl.endsWith('.m3u8') ? inputUrl : inputUrl.replace(/\/$/, '') + '/index.m3u8';
     
-    // 302 redirect to proxy
-    res.redirect(302, proxyUrl);
+    console.log(`[Stream] Fetching manifest: ${targetUrl}`);
+    
+    try {
+      const response = await fetch(targetUrl, {
+        redirect: 'follow',
+        headers: { 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20' }
+      });
+      
+      if (!response.ok) {
+        console.error(`[Stream] Upstream error ${response.status}`);
+        return res.status(response.status).send('Stream unavailable');
+      }
+      
+      const content = await response.text();
+      const finalUrl = response.url || targetUrl;
+      const finalUrlBase = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
+      
+      // Rewrite all URLs using base64 encoding
+      const lines = content.split('\n');
+      const rewritten = lines.map(line => {
+        const trimmed = line.trim();
+        
+        // Handle URI="..." in tags
+        if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
+          return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+            let fullUrl;
+            if (uri.startsWith('http')) {
+              fullUrl = uri;
+            } else if (uri.startsWith('/')) {
+              const urlObj = new URL(finalUrl);
+              fullUrl = urlObj.origin + uri;
+            } else {
+              fullUrl = finalUrlBase + uri;
+            }
+            const encoded = Buffer.from(fullUrl).toString('base64');
+            return `URI="${proxyBase}b64/${encodeURIComponent(encoded)}"`;
+          });
+        }
+        
+        // Skip comments and empty lines
+        if (trimmed.startsWith('#') || !trimmed) return line;
+        
+        // Rewrite URL
+        let fullUrl;
+        if (trimmed.startsWith('http')) {
+          fullUrl = trimmed;
+        } else if (trimmed.startsWith('/')) {
+          const urlObj = new URL(finalUrl);
+          fullUrl = urlObj.origin + trimmed;
+        } else {
+          fullUrl = finalUrlBase + trimmed;
+        }
+        
+        const encoded = Buffer.from(fullUrl).toString('base64');
+        return proxyBase + 'b64/' + encodeURIComponent(encoded);
+      });
+      
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.send(rewritten.join('\n'));
+      
+    } catch (fetchError) {
+      console.error(`[Stream] Fetch error: ${fetchError.message}`);
+      return res.status(502).send('Stream unavailable');
+    }
     
   } catch (error) {
     console.error('[Stream] Error:', error);
