@@ -2128,9 +2128,8 @@ app.get('/movie/:username/:password/:vodId', async (req, res) => {
     // Proxy the video stream with Range support
     const https = require('https');
     const http = require('http');
-    const url = require('url');
     
-    const parsedUrl = url.parse(streamUrl);
+    const parsedUrl = new URL(streamUrl);
     const protocol = parsedUrl.protocol === 'https:' ? https : http;
     
     const proxyHeaders = {
@@ -2144,8 +2143,8 @@ app.get('/movie/:username/:password/:vodId', async (req, res) => {
     
     const proxyReq = protocol.request({
       hostname: parsedUrl.hostname,
-      port: parsedUrl.port,
-      path: parsedUrl.path,
+      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
       method: 'GET',
       headers: proxyHeaders
     }, (proxyRes) => {
@@ -2241,9 +2240,8 @@ app.get('/series/:username/:password/:episodeId', async (req, res) => {
     // Proxy the video stream with Range support
     const https = require('https');
     const http = require('http');
-    const url = require('url');
     
-    const parsedUrl = url.parse(streamUrl);
+    const parsedUrl = new URL(streamUrl);
     const protocol = parsedUrl.protocol === 'https:' ? https : http;
     
     const proxyHeaders = {
@@ -2257,8 +2255,8 @@ app.get('/series/:username/:password/:episodeId', async (req, res) => {
     
     const proxyReq = protocol.request({
       hostname: parsedUrl.hostname,
-      port: parsedUrl.port,
-      path: parsedUrl.path,
+      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
       method: 'GET',
       headers: proxyHeaders
     }, (proxyRes) => {
