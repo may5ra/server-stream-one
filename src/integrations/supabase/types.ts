@@ -168,10 +168,14 @@ export type Database = {
           current_streams: number | null
           id: string
           ip_address: string
+          last_deploy: string | null
           max_streams: number | null
           name: string
+          nginx_port: number | null
           port: number | null
           server_id: string | null
+          ssh_password: string | null
+          ssh_username: string | null
           status: string | null
           updated_at: string
         }
@@ -180,10 +184,14 @@ export type Database = {
           current_streams?: number | null
           id?: string
           ip_address: string
+          last_deploy?: string | null
           max_streams?: number | null
           name: string
+          nginx_port?: number | null
           port?: number | null
           server_id?: string | null
+          ssh_password?: string | null
+          ssh_username?: string | null
           status?: string | null
           updated_at?: string
         }
@@ -192,10 +200,14 @@ export type Database = {
           current_streams?: number | null
           id?: string
           ip_address?: string
+          last_deploy?: string | null
           max_streams?: number | null
           name?: string
+          nginx_port?: number | null
           port?: number | null
           server_id?: string | null
+          ssh_password?: string | null
+          ssh_username?: string | null
           status?: string | null
           updated_at?: string
         }
