@@ -1,8 +1,9 @@
-import { Search, User, LogOut, Settings, Shield } from "lucide-react";
+import { Search, User, LogOut, Settings, Shield, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MobileNav } from "./MobileNav";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import { useTheme } from "@/hooks/useTheme";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +15,7 @@ import {
 export function Header() {
   const { user, signOut, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const { mode, toggleMode } = useTheme();
 
   const handleSignOut = async () => {
     await signOut();
@@ -36,7 +38,21 @@ export function Header() {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Dark/Light Mode Toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleMode}
+          className="h-9 w-9 rounded-lg border border-border bg-card hover:bg-muted transition-colors"
+          title={mode === "dark" ? "Prebaci na svijetlu temu" : "Prebaci na tamnu temu"}
+        >
+          {mode === "dark" ? (
+            <Sun className="h-4 w-4 text-primary" />
+          ) : (
+            <Moon className="h-4 w-4 text-primary" />
+          )}
+        </Button>
         {/* User Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
