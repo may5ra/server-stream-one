@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload, Sparkles } from "lucide-react";
+import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload, Sparkles, RotateCcw, Clock } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,37 @@ const detectProxyMode = (url: string): string => {
   return "direct";
 };
 
+// Online timer component that updates every second
+const OnlineTimer = ({ since }: { since: string }) => {
+  const [elapsed, setElapsed] = useState("");
+  
+  useEffect(() => {
+    const updateElapsed = () => {
+      const start = new Date(since).getTime();
+      const now = Date.now();
+      const diff = Math.floor((now - start) / 1000);
+      
+      const hours = Math.floor(diff / 3600);
+      const minutes = Math.floor((diff % 3600) / 60);
+      const seconds = diff % 60;
+      
+      if (hours > 0) {
+        setElapsed(`${hours}h ${minutes}m`);
+      } else if (minutes > 0) {
+        setElapsed(`${minutes}m ${seconds}s`);
+      } else {
+        setElapsed(`${seconds}s`);
+      }
+    };
+    
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+    return () => clearInterval(interval);
+  }, [since]);
+  
+  return <span className="text-success">{elapsed}</span>;
+};
+
 const getDetectedPatternLabel = (url: string): string | null => {
   if (!url) return null;
   
@@ -105,7 +136,7 @@ const getDetectedPatternLabel = (url: string): string | null => {
 };
 
 const Streams = () => {
-  const { streams, loading, addStream, updateStream, deleteStream, toggleStream, refetch, syncAllStreams } = useStreams();
+  const { streams, loading, addStream, updateStream, deleteStream, toggleStream, refetch, syncAllStreams, resetStream } = useStreams();
   const { loadBalancers } = useLoadBalancers();
   const [syncing, setSyncing] = useState(false);
 
@@ -264,7 +295,7 @@ const Streams = () => {
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-2xl font-semibold text-foreground">Nimble Streamer</h2>
+                <h2 className="text-2xl font-semibold text-foreground">NeoServ</h2>
                 <Badge variant="outline" className="text-xs">WebVTT Enabled</Badge>
               </div>
               <p className="text-muted-foreground">Upravljanje streamovima s podrškom za titlove</p>
@@ -744,7 +775,7 @@ const Streams = () => {
                     )}
                   </div>
                   
-                  <div className="mb-4 grid grid-cols-2 gap-2 text-xs">
+                  <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
                     <div className="text-center p-2 rounded bg-muted/50">
                       <p className="text-muted-foreground">Bitrate</p>
                       <p className="font-semibold text-foreground">{stream.bitrate} kbps</p>
@@ -752,6 +783,16 @@ const Streams = () => {
                     <div className="text-center p-2 rounded bg-muted/50">
                       <p className="text-muted-foreground">Rezolucija</p>
                       <p className="font-semibold text-foreground">{stream.resolution}</p>
+                    </div>
+                    <div className="text-center p-2 rounded bg-muted/50">
+                      <p className="text-muted-foreground">Online</p>
+                      <p className="font-semibold text-foreground">
+                        {stream.status === "live" && stream.online_since ? (
+                          <OnlineTimer since={stream.online_since} />
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </p>
                     </div>
                   </div>
                   
@@ -781,6 +822,22 @@ const Streams = () => {
                     >
                       <Download className="h-4 w-4" />
                     </Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => resetStream(stream.id)}
+                            disabled={stream.status !== "live"}
+                            title="Reset Stream"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Restart stream</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <Button 
                       variant="outline" 
                       size="sm"

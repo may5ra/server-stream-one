@@ -548,6 +548,7 @@ export type Database = {
           input_url: string
           load_balancer_id: string | null
           name: string
+          online_since: string | null
           output_formats: string[] | null
           proxy_mode: string | null
           resolution: string | null
@@ -575,6 +576,7 @@ export type Database = {
           input_url: string
           load_balancer_id?: string | null
           name: string
+          online_since?: string | null
           output_formats?: string[] | null
           proxy_mode?: string | null
           resolution?: string | null
@@ -602,6 +604,7 @@ export type Database = {
           input_url?: string
           load_balancer_id?: string | null
           name?: string
+          online_since?: string | null
           output_formats?: string[] | null
           proxy_mode?: string | null
           resolution?: string | null

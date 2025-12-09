@@ -42,6 +42,7 @@ export interface Stream {
   stream_icon: string | null;
   epg_channel_id: string | null;
   proxy_mode: string | null;
+  online_since?: string | null;
 }
 
 // Call backend through Edge Function to avoid CORS/mixed-content issues
@@ -195,8 +196,26 @@ export const useStreams = () => {
     if (!stream) return;
 
     const newStatus = stream.status === "live" ? "inactive" : "live";
+    const updates: Partial<Stream> = { 
+      status: newStatus,
+      online_since: newStatus === "live" ? new Date().toISOString() : null
+    };
 
-    await updateStream(id, { status: newStatus });
+    await updateStream(id, updates);
+  };
+
+  const resetStream = async (id: string) => {
+    const stream = streams.find((s) => s.id === id);
+    if (!stream || stream.status !== "live") return;
+
+    // Toggle off then on to restart
+    await updateStream(id, { status: "inactive", online_since: null });
+    
+    // Small delay then turn back on
+    setTimeout(async () => {
+      await updateStream(id, { status: "live", online_since: new Date().toISOString() });
+      toast({ title: "Reset", description: `Stream ${stream.name} resetiran` });
+    }, 500);
   };
 
   const syncAllStreams = async () => {
@@ -249,6 +268,7 @@ export const useStreams = () => {
     updateStream,
     deleteStream,
     toggleStream,
+    resetStream,
     refetch: fetchStreams,
     syncAllStreams,
   };
