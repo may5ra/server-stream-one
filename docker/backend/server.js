@@ -835,10 +835,6 @@ app.get('/get.php', async (req, res) => {
       ['error']
     );
     
-    // Determine output format: m3u8 (HLS) or ts (direct transport stream)
-    // output=ts generates .ts URLs, output=m3u8 or default generates HLS index.m3u8
-    const useTs = output === 'ts';
-    
     for (const stream of streams.rows) {
       // Use bouquet for group-title (country grouping like "Slovenia", "Croatia")
       // Falls back to category if bouquet is not set
@@ -848,25 +844,9 @@ app.get('/get.php', async (req, res) => {
       
       const encodedName = encodeURIComponent(stream.name);
       
-      // Generate URL based on input_type
-      if (stream.input_type === 'mpd') {
-        // MPD/DASH streams - use manifest.mpd
-        playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/manifest.mpd\n`;
-      } else if (stream.input_type === 'hls') {
-        // HLS streams
-        if (useTs) {
-          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.ts\n`;
-        } else {
-          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
-        }
-      } else {
-        // RTMP/SRT/other streams - use standard format
-        if (useTs) {
-          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.ts\n`;
-        } else {
-          playlist += `${baseUrl}/proxy/${username}/${password}/${encodedName}/index.m3u8\n`;
-        }
-      }
+      // ALWAYS use FFmpeg TS format - this is the working format with no buffering!
+      // /live/StreamName.ts?username=X&password=X
+      playlist += `${baseUrl}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
     }
     
     res.setHeader('Content-Type', 'audio/x-mpegurl');
