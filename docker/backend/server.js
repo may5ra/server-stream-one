@@ -262,6 +262,8 @@ app.post('/api/streams/sync', async (req, res) => {
   try {
     const { streams } = req.body;
     
+    console.log(`[Sync] Received ${streams?.length || 0} streams to sync`);
+    
     if (!Array.isArray(streams)) {
       return res.status(400).json({ error: 'Streams array required' });
     }
@@ -269,6 +271,10 @@ app.post('/api/streams/sync', async (req, res) => {
     let synced = 0, errors = [];
     
     for (const stream of streams) {
+      // Log WebVTT data for each stream
+      if (stream.webvtt_enabled) {
+        console.log(`[Sync] WebVTT stream: ${stream.name}, url=${stream.webvtt_url}, label=${stream.webvtt_label}`);
+      }
       try {
         await pool.query(`
           INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers, created_at)
@@ -339,6 +345,10 @@ app.post('/api/streams/sync-one', async (req, res) => {
   try {
     const stream = req.body;
     
+    // Enhanced logging for WebVTT debugging
+    console.log(`[Sync-One] Received stream: ${stream.name}`);
+    console.log(`[Sync-One] WebVTT data: enabled=${stream.webvtt_enabled}, url=${stream.webvtt_url}, label=${stream.webvtt_label}`);
+    
     await pool.query(`
       INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
@@ -390,8 +400,8 @@ app.post('/api/streams/sync-one', async (req, res) => {
     // Invalidate cache for this stream immediately
     invalidateStreamCache(stream.name);
     
-    console.log(`[Sync] Synced stream: ${stream.name}, status: ${stream.status || 'inactive'}`);
-    res.json({ success: true });
+    console.log(`[Sync] Synced stream: ${stream.name}, status: ${stream.status || 'inactive'}, webvtt=${stream.webvtt_enabled || false}`);
+    res.json({ success: true, synced: stream.name, webvtt_enabled: stream.webvtt_enabled || false });
   } catch (error) {
     console.error('[Sync] Stream error:', error);
     res.status(500).json({ error: error.message });
