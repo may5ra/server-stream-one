@@ -21,6 +21,7 @@ import Series from "./pages/Series";
 import Resellers from "./pages/Resellers";
 import Connections from "./pages/Connections";
 import Bouquets from "./pages/Bouquets";
+import LoadBalancers from "./pages/LoadBalancers";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -47,6 +48,7 @@ const App = () => (
                 <Route path="/connections" element={<ProtectedRoute><Connections /></ProtectedRoute>} />
                 <Route path="/bouquets" element={<ProtectedRoute><Bouquets /></ProtectedRoute>} />
                 <Route path="/servers" element={<ProtectedRoute><Servers /></ProtectedRoute>} />
+                <Route path="/load-balancers" element={<ProtectedRoute><LoadBalancers /></ProtectedRoute>} />
                 <Route path="/database" element={<ProtectedRoute><Database /></ProtectedRoute>} />
                 <Route path="/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
                 <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />

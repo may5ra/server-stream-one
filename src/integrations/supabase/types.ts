@@ -162,6 +162,53 @@ export type Database = {
         }
         Relationships: []
       }
+      load_balancers: {
+        Row: {
+          created_at: string
+          current_streams: number | null
+          id: string
+          ip_address: string
+          max_streams: number | null
+          name: string
+          port: number | null
+          server_id: string | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_streams?: number | null
+          id?: string
+          ip_address: string
+          max_streams?: number | null
+          name: string
+          port?: number | null
+          server_id?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_streams?: number | null
+          id?: string
+          ip_address?: string
+          max_streams?: number | null
+          name?: string
+          port?: number | null
+          server_id?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "load_balancers_server_id_fkey"
+            columns: ["server_id"]
+            isOneToOne: false
+            referencedRelation: "servers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       panel_settings: {
         Row: {
           created_at: string
@@ -499,6 +546,7 @@ export type Database = {
           id: string
           input_type: string
           input_url: string
+          load_balancer_id: string | null
           name: string
           output_formats: string[] | null
           proxy_mode: string | null
@@ -525,6 +573,7 @@ export type Database = {
           id?: string
           input_type?: string
           input_url: string
+          load_balancer_id?: string | null
           name: string
           output_formats?: string[] | null
           proxy_mode?: string | null
@@ -551,6 +600,7 @@ export type Database = {
           id?: string
           input_type?: string
           input_url?: string
+          load_balancer_id?: string | null
           name?: string
           output_formats?: string[] | null
           proxy_mode?: string | null
@@ -563,6 +613,44 @@ export type Database = {
           webvtt_label?: string | null
           webvtt_language?: string | null
           webvtt_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "streams_load_balancer_id_fkey"
+            columns: ["load_balancer_id"]
+            isOneToOne: false
+            referencedRelation: "load_balancers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      system_updates: {
+        Row: {
+          applied_at: string | null
+          changelog: string | null
+          created_at: string
+          id: string
+          is_available: boolean | null
+          released_at: string | null
+          version: string
+        }
+        Insert: {
+          applied_at?: string | null
+          changelog?: string | null
+          created_at?: string
+          id?: string
+          is_available?: boolean | null
+          released_at?: string | null
+          version: string
+        }
+        Update: {
+          applied_at?: string | null
+          changelog?: string | null
+          created_at?: string
+          id?: string
+          is_available?: boolean | null
+          released_at?: string | null
+          version?: string
         }
         Relationships: []
       }

@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useStreams, Stream } from "@/hooks/useStreams";
 import { useSettings } from "@/hooks/useSettings";
+import { useLoadBalancers } from "@/hooks/useLoadBalancers";
 import { StreamTestPlayer } from "@/components/StreamTestPlayer";
 import { M3UImportDialog } from "@/components/M3UImportDialog";
 
@@ -105,6 +106,7 @@ const getDetectedPatternLabel = (url: string): string | null => {
 
 const Streams = () => {
   const { streams, loading, addStream, updateStream, deleteStream, toggleStream, refetch, syncAllStreams } = useStreams();
+  const { loadBalancers } = useLoadBalancers();
   const [syncing, setSyncing] = useState(false);
 
   const handleSyncAll = async () => {
@@ -150,6 +152,7 @@ const Streams = () => {
     stream_icon: null as string | null,
     epg_channel_id: null as string | null,
     proxy_mode: "direct" as string | null,
+    load_balancer_id: null as string | null,
   });
 
   // Auto-assign channel number when dialog opens
@@ -217,6 +220,7 @@ const Streams = () => {
       stream_icon: null,
       epg_channel_id: null,
       proxy_mode: "direct",
+      load_balancer_id: null,
     });
     setIsAddOpen(false);
   };
@@ -564,6 +568,30 @@ const Streams = () => {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {/* Load Balancer Selection */}
+                    {loadBalancers.length > 0 && (
+                      <div className="space-y-2">
+                        <Label>Load Balancer</Label>
+                        <p className="text-xs text-muted-foreground mb-2">Server koji će streamati ovaj kanal</p>
+                        <Select 
+                          value={newStream.load_balancer_id || "none"}
+                          onValueChange={(v) => setNewStream({ ...newStream, load_balancer_id: v === "none" ? null : v })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Odaberi Load Balancer" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Bez Load Balancera</SelectItem>
+                            {loadBalancers.map((lb) => (
+                              <SelectItem key={lb.id} value={lb.id}>
+                                {lb.name} ({lb.ip_address}:{lb.port})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </TabsContent>
                 </Tabs>
                 
