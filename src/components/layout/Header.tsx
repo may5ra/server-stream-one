@@ -4,6 +4,7 @@ import { MobileNav } from "./MobileNav";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
+import { UpdateNotification } from "@/components/UpdateNotification";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +40,8 @@ export function Header() {
 
       {/* Actions */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Update Notification */}
+        <UpdateNotification />
         {/* Dark/Light Mode Toggle */}
         <Button
           variant="ghost"

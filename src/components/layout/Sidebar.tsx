@@ -16,7 +16,8 @@ import {
   Clapperboard,
   UserCog,
   Wifi,
-  Package
+  Package,
+  Network
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,7 @@ const navItems: NavItem[] = [
   { icon: Calendar, label: "EPG", href: "/epg" },
   { icon: UserCog, label: "Resellers", href: "/resellers" },
   { icon: Server, label: "Servers", href: "/servers" },
+  { icon: Network, label: "Load Balancers", href: "/load-balancers" },
   { icon: Database, label: "Database", href: "/database" },
   { icon: Activity, label: "Activity", href: "/activity" },
   { icon: Shield, label: "Security", href: "/security" },
