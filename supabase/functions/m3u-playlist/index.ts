@@ -128,32 +128,8 @@ Deno.serve(async (req) => {
       
       console.log(`[M3U] Stream: ${stream.name}, proxy_mode: ${proxyMode}, output: ${output}`);
       
-      // If user requested TS output, always use FFmpeg TS format
-      if (output === "ts") {
-        m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
-      } else if (proxyMode === "hls") {
-        // HLS proxy mode - FFmpeg re-stream via /hls/ endpoint
-        m3u += `http://${serverUrl}:${httpPort}/hls/${username}/${password}/${encodedName}/index.m3u8\n`;
-      } else if (proxyMode === "ffmpeg") {
-        // FFmpeg mode - direct MPEG-TS stream
-        m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
-      } else if (proxyMode === "direct") {
-        // Direct proxy mode - pass through original stream
-        if (stream.input_type === "hls" || stream.input_type === "mpd") {
-          const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
-          m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
-        } else {
-          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}.m3u8\n`;
-        }
-      } else {
-        // Fallback - use proxy for HLS/MPD, live for others
-        if (stream.input_type === "hls" || stream.input_type === "mpd") {
-          const ext = stream.input_type === "mpd" ? "manifest.mpd" : "index.m3u8";
-          m3u += `http://${serverUrl}:${httpPort}/proxy/${username}/${password}/${encodedName}/${ext}\n`;
-        } else {
-          m3u += `http://${serverUrl}:${httpPort}/live/${username}/${password}/${stream.id}.m3u8\n`;
-        }
-      }
+      // Always use FFmpeg TS format for live streams - this is the working format
+      m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
     });
   });
   
