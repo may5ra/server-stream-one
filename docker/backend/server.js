@@ -1580,10 +1580,13 @@ app.get('/hls/:streamName/index.m3u8', async (req, res) => {
   console.log(`[HLS] Playlist request: ${decodedName}`);
   
   try {
-    // Get stream URL
+    // Get stream URL with WebVTT data
     let stream = getCachedStream(decodedName);
     if (!stream) {
-      const result = await pool.query('SELECT input_url FROM streams WHERE name = $1', [decodedName]);
+      const result = await pool.query(
+        'SELECT input_url, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label FROM streams WHERE name = $1', 
+        [decodedName]
+      );
       if (result.rows.length === 0) {
         return res.status(404).send('#EXTM3U\n#EXT-X-ERROR:Stream not found');
       }
@@ -1621,6 +1624,33 @@ app.get('/hls/:streamName/index.m3u8', async (req, res) => {
     // Rewrite segment URLs to point to our endpoint
     playlist = playlist.replace(/segment_(\d+)\.ts/g, `/hls/${encodeURIComponent(streamName)}/segment_$1.ts`);
     
+    // If WebVTT is enabled, add subtitle track to master playlist
+    if (stream.webvtt_enabled && stream.webvtt_url) {
+      const lang = stream.webvtt_language || 'en';
+      const label = stream.webvtt_label || 'Subtitles';
+      
+      // Check if this is a master playlist (has EXT-X-STREAM-INF) or media playlist
+      if (playlist.includes('#EXT-X-TARGETDURATION')) {
+        // This is a media playlist, need to create a master playlist wrapper
+        const masterPlaylist = `#EXTM3U
+#EXT-X-VERSION:3
+
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="${label}",DEFAULT=YES,AUTOSELECT=YES,FORCED=NO,LANGUAGE="${lang}",URI="/hls/${encodeURIComponent(streamName)}/subtitles.m3u8"
+
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,SUBTITLES="subs"
+/hls/${encodeURIComponent(streamName)}/media.m3u8`;
+        
+        // Store the original media playlist under a different name
+        hlsData.mediaPlaylist = playlist;
+        hlsData.hasSubtitles = true;
+        hlsData.webvttUrl = stream.webvtt_url;
+        hlsData.webvttLang = lang;
+        
+        playlist = masterPlaylist;
+        console.log(`[HLS] Created master playlist with WebVTT for: ${decodedName}`);
+      }
+    }
+    
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1629,6 +1659,93 @@ app.get('/hls/:streamName/index.m3u8', async (req, res) => {
   } catch (error) {
     console.error('[HLS] Error:', error);
     res.status(500).send('#EXTM3U\n#EXT-X-ERROR:' + error.message);
+  }
+});
+
+// Serve media playlist (for streams with subtitles)
+app.get('/hls/:streamName/media.m3u8', async (req, res) => {
+  const { streamName } = req.params;
+  const decodedName = decodeURIComponent(streamName);
+  
+  const hlsData = activeHlsStreams.get(decodedName);
+  if (!hlsData || !hlsData.mediaPlaylist) {
+    // Fall back to reading from file
+    if (hlsData && fs.existsSync(hlsData.playlistPath)) {
+      let playlist = fs.readFileSync(hlsData.playlistPath, 'utf8');
+      playlist = playlist.replace(/segment_(\d+)\.ts/g, `/hls/${encodeURIComponent(streamName)}/segment_$1.ts`);
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.send(playlist);
+    }
+    return res.status(404).send('#EXTM3U\n#EXT-X-ERROR:Media playlist not found');
+  }
+  
+  hlsData.lastAccess = Date.now();
+  
+  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.send(hlsData.mediaPlaylist);
+});
+
+// Serve WebVTT subtitle playlist
+app.get('/hls/:streamName/subtitles.m3u8', async (req, res) => {
+  const { streamName } = req.params;
+  const decodedName = decodeURIComponent(streamName);
+  
+  const hlsData = activeHlsStreams.get(decodedName);
+  if (!hlsData || !hlsData.hasSubtitles) {
+    return res.status(404).send('#EXTM3U\n#EXT-X-ERROR:Subtitles not available');
+  }
+  
+  hlsData.lastAccess = Date.now();
+  
+  // Create a simple WebVTT playlist that points to the actual subtitle file
+  const subtitlePlaylist = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:86400
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:86400.0,
+/hls/${encodeURIComponent(streamName)}/subtitles.vtt
+#EXT-X-ENDLIST`;
+  
+  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.send(subtitlePlaylist);
+});
+
+// Proxy the actual WebVTT file
+app.get('/hls/:streamName/subtitles.vtt', async (req, res) => {
+  const { streamName } = req.params;
+  const decodedName = decodeURIComponent(streamName);
+  
+  const hlsData = activeHlsStreams.get(decodedName);
+  if (!hlsData || !hlsData.webvttUrl) {
+    return res.status(404).send('WEBVTT\n\n');
+  }
+  
+  hlsData.lastAccess = Date.now();
+  
+  try {
+    // Fetch the WebVTT file from the source
+    const response = await fetch(hlsData.webvttUrl);
+    if (!response.ok) {
+      console.error(`[HLS] Failed to fetch WebVTT: ${response.status}`);
+      return res.status(502).send('WEBVTT\n\n');
+    }
+    
+    const vttContent = await response.text();
+    
+    res.setHeader('Content-Type', 'text/vtt');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(vttContent);
+    
+  } catch (error) {
+    console.error('[HLS] WebVTT proxy error:', error.message);
+    res.status(502).send('WEBVTT\n\n');
   }
 });
 
@@ -1690,11 +1807,14 @@ app.get('/live/:streamName.ts', async (req, res) => {
       }
     }
     
-    // Get stream
+    // Get stream with WebVTT data
     const decodedName = decodeURIComponent(streamName);
     let stream = getCachedStream(decodedName);
     if (!stream) {
-      const result = await pool.query('SELECT input_url FROM streams WHERE name = $1', [decodedName]);
+      const result = await pool.query(
+        'SELECT input_url, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label FROM streams WHERE name = $1', 
+        [decodedName]
+      );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Stream not found' });
       }
@@ -1716,18 +1836,47 @@ app.get('/live/:streamName.ts', async (req, res) => {
       // Start new FFmpeg process
       console.log(`[FFmpeg] Starting new process for: ${decodedName}`);
       console.log(`[FFmpeg] Input URL: ${stream.input_url}`);
+      console.log(`[FFmpeg] WebVTT enabled: ${stream.webvtt_enabled}, URL: ${stream.webvtt_url}`);
       
-      const ffmpeg = spawn('ffmpeg', [
+      // Build FFmpeg arguments based on WebVTT settings
+      let ffmpegArgs = [
         '-hide_banner',
         '-loglevel', 'warning',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
-        '-i', stream.input_url,
-        '-c', 'copy',
-        '-f', 'mpegts',
-        '-'
-      ]);
+        '-i', stream.input_url
+      ];
+      
+      // If WebVTT is enabled and URL is provided, add subtitle input
+      if (stream.webvtt_enabled && stream.webvtt_url) {
+        console.log(`[FFmpeg] Adding WebVTT subtitles from: ${stream.webvtt_url}`);
+        ffmpegArgs.push(
+          '-i', stream.webvtt_url,
+          '-map', '0:v',     // Video from first input
+          '-map', '0:a',     // Audio from first input
+          '-map', '1:s?',    // Subtitles from second input (optional)
+          '-c:v', 'copy',    // Copy video
+          '-c:a', 'copy',    // Copy audio
+          '-c:s', 'mov_text' // Encode subtitles for MPEG-TS (DVB teletext style)
+        );
+        
+        // Add subtitle metadata
+        if (stream.webvtt_language) {
+          ffmpegArgs.push('-metadata:s:s:0', `language=${stream.webvtt_language}`);
+        }
+        if (stream.webvtt_label) {
+          ffmpegArgs.push('-metadata:s:s:0', `title=${stream.webvtt_label}`);
+        }
+      } else {
+        // No subtitles - just copy streams
+        ffmpegArgs.push('-c', 'copy');
+      }
+      
+      // Output format
+      ffmpegArgs.push('-f', 'mpegts', '-');
+      
+      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
       
       streamData = {
         process: ffmpeg,
