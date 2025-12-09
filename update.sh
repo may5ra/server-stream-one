@@ -1,27 +1,36 @@
 #!/bin/bash
 
-# StreamPanel Update Script
+# StreamPanel Update Script with Auto Conflict Resolution
 
 set -e
 
 INSTALL_DIR="/opt/streampanel"
 
-echo "StreamPanel Updater"
-echo "==================="
+echo "========================================="
+echo "     StreamPanel Auto Updater"
+echo "========================================="
 
 cd $INSTALL_DIR
 
-# Pull latest changes
-echo "Pulling latest changes..."
-git pull
+# Save any local changes
+echo "📦 Saving local changes..."
+git stash --include-untracked 2>/dev/null || true
 
-# Rebuild and restart
+# Reset any conflicting files to match remote
+echo "🔄 Resetting to remote version..."
+git fetch origin main
+git reset --hard origin/main
+
+# Rebuild and restart containers
 cd docker
-echo "Rebuilding containers..."
+echo "🔨 Rebuilding containers..."
 docker compose build --no-cache
 
-echo "Restarting services..."
+echo "🚀 Restarting services..."
 docker compose up -d
 
-echo "Update complete!"
+echo ""
+echo "========================================="
+echo "     ✅ Update Complete!"
+echo "========================================="
 docker compose ps
