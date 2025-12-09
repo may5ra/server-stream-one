@@ -13,6 +13,10 @@ interface LoadBalancer {
   current_streams: number;
   created_at: string;
   updated_at: string;
+  ssh_username?: string;
+  ssh_password?: string;
+  nginx_port?: number;
+  last_deploy?: string;
 }
 
 export const useLoadBalancers = () => {

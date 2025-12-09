@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Server, Trash2, Edit, RefreshCw, Network } from "lucide-react";
+import { Plus, Server, Trash2, Edit, RefreshCw, Network, Key, Play, Settings, Eye, EyeOff } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useLoadBalancers } from "@/hooks/useLoadBalancers";
 import { useServers } from "@/hooks/useServers";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 const LoadBalancers = () => {
   const { loadBalancers, isLoading, addLoadBalancer, updateLoadBalancer, deleteLoadBalancer } = useLoadBalancers();
   const { servers } = useServers();
+  const { toast } = useToast();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingLB, setEditingLB] = useState<any>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [deploying, setDeploying] = useState<string | null>(null);
+  const [deployResult, setDeployResult] = useState<any>(null);
   
   const [newLB, setNewLB] = useState({
     name: "",
@@ -24,12 +30,19 @@ const LoadBalancers = () => {
     port: 80,
     status: "active",
     max_streams: 100,
+    ssh_username: "root",
+    ssh_password: "",
+    nginx_port: 8080,
   });
 
   const handleAdd = async () => {
     if (!newLB.name || !newLB.ip_address) return;
     await addLoadBalancer.mutateAsync(newLB);
-    setNewLB({ name: "", server_id: null, ip_address: "", port: 80, status: "active", max_streams: 100 });
+    setNewLB({ 
+      name: "", server_id: null, ip_address: "", port: 80, 
+      status: "active", max_streams: 100, ssh_username: "root", 
+      ssh_password: "", nginx_port: 8080 
+    });
     setIsAddOpen(false);
   };
 
@@ -42,6 +55,56 @@ const LoadBalancers = () => {
   const handleDelete = async (id: string) => {
     if (confirm("Jesi siguran da želiš obrisati ovaj Load Balancer?")) {
       await deleteLoadBalancer.mutateAsync(id);
+    }
+  };
+
+  const handleTestConnection = async (lbId: string) => {
+    setDeploying(lbId);
+    try {
+      const { data, error } = await supabase.functions.invoke('lb-deploy', {
+        body: { action: 'test', loadBalancerId: lbId }
+      });
+      
+      if (error) throw error;
+      
+      toast({
+        title: data.success ? "Povezano" : "Greška",
+        description: data.message,
+        variant: data.success ? "default" : "destructive"
+      });
+    } catch (error: any) {
+      toast({
+        title: "Greška",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setDeploying(null);
+    }
+  };
+
+  const handleDeploy = async (lbId: string) => {
+    setDeploying(lbId);
+    try {
+      const { data, error } = await supabase.functions.invoke('lb-deploy', {
+        body: { action: 'deploy', loadBalancerId: lbId }
+      });
+      
+      if (error) throw error;
+      
+      setDeployResult(data);
+      toast({
+        title: data.success ? "Deployano" : "Config generiran",
+        description: data.message || `${data.streams?.length || 0} streamova konfigurirano`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Greška",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setDeploying(null);
     }
   };
 
@@ -108,12 +171,60 @@ const LoadBalancers = () => {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Max Streamova</Label>
+                      <Label>Nginx Port</Label>
                       <Input
                         type="number"
-                        value={newLB.max_streams}
-                        onChange={(e) => setNewLB({ ...newLB, max_streams: parseInt(e.target.value) || 100 })}
+                        value={newLB.nginx_port}
+                        onChange={(e) => setNewLB({ ...newLB, nginx_port: parseInt(e.target.value) || 8080 })}
                       />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Max Streamova</Label>
+                    <Input
+                      type="number"
+                      value={newLB.max_streams}
+                      onChange={(e) => setNewLB({ ...newLB, max_streams: parseInt(e.target.value) || 100 })}
+                    />
+                  </div>
+
+                  <div className="border-t border-border pt-4 mt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Key className="h-4 w-4 text-primary" />
+                      <span className="font-medium text-sm">SSH Kredencijali</span>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>SSH Username</Label>
+                        <Input
+                          value={newLB.ssh_username}
+                          onChange={(e) => setNewLB({ ...newLB, ssh_username: e.target.value })}
+                          placeholder="root"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>SSH Password</Label>
+                        <div className="relative">
+                          <Input
+                            type={showPassword ? "text" : "password"}
+                            value={newLB.ssh_password}
+                            onChange={(e) => setNewLB({ ...newLB, ssh_password: e.target.value })}
+                            placeholder="••••••••"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   
@@ -250,7 +361,7 @@ const LoadBalancers = () => {
                     </div>
                   </div>
                   
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mb-2">
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -267,6 +378,33 @@ const LoadBalancers = () => {
                       onClick={() => handleDelete(lb.id)}
                     >
                       <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex-1"
+                      onClick={() => handleTestConnection(lb.id)}
+                      disabled={deploying === lb.id}
+                    >
+                      <Settings className="h-4 w-4 mr-1" />
+                      Test
+                    </Button>
+                    <Button 
+                      variant="glow" 
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleDeploy(lb.id)}
+                      disabled={deploying === lb.id}
+                    >
+                      {deploying === lb.id ? (
+                        <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4 mr-1" />
+                      )}
+                      Deploy
                     </Button>
                   </div>
                 </div>
@@ -298,7 +436,7 @@ const LoadBalancers = () => {
           </DialogHeader>
           
           {editingLB && (
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
               <div className="space-y-2">
                 <Label>Naziv</Label>
                 <Input
@@ -325,12 +463,59 @@ const LoadBalancers = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Max Streamova</Label>
+                  <Label>Nginx Port</Label>
                   <Input
                     type="number"
-                    value={editingLB.max_streams}
-                    onChange={(e) => setEditingLB({ ...editingLB, max_streams: parseInt(e.target.value) || 100 })}
+                    value={editingLB.nginx_port || 8080}
+                    onChange={(e) => setEditingLB({ ...editingLB, nginx_port: parseInt(e.target.value) || 8080 })}
                   />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Max Streamova</Label>
+                <Input
+                  type="number"
+                  value={editingLB.max_streams}
+                  onChange={(e) => setEditingLB({ ...editingLB, max_streams: parseInt(e.target.value) || 100 })}
+                />
+              </div>
+
+              <div className="border-t border-border pt-4 mt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Key className="h-4 w-4 text-primary" />
+                  <span className="font-medium text-sm">SSH Kredencijali</span>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>SSH Username</Label>
+                    <Input
+                      value={editingLB.ssh_username || "root"}
+                      onChange={(e) => setEditingLB({ ...editingLB, ssh_username: e.target.value })}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>SSH Password</Label>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        value={editingLB.ssh_password || ""}
+                        onChange={(e) => setEditingLB({ ...editingLB, ssh_password: e.target.value })}
+                        placeholder="••••••••"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
               
