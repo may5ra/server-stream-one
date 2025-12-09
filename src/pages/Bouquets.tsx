@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { GripVertical, Plus, Trash2, RefreshCw, Tv, Film, PlaySquare, Save, ChevronDown, ChevronRight } from "lucide-react";
+import { GripVertical, Plus, Trash2, RefreshCw, Tv, Film, PlaySquare, Save, ChevronDown, ChevronRight, Radio, X } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,14 @@ interface Category {
   type: "live" | "vod" | "series";
 }
 
+interface Stream {
+  id: string;
+  name: string;
+  channel_number: number | null;
+  status: string;
+  stream_icon: string | null;
+}
+
 const Bouquets = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +38,14 @@ const Bouquets = () => {
   });
   const [newCategory, setNewCategory] = useState({ name: "", type: "live" as "live" | "vod" | "series" });
   const [draggedItem, setDraggedItem] = useState<Category | null>(null);
+  
+  // Stream sorting state
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [categoryStreams, setCategoryStreams] = useState<Stream[]>([]);
+  const [loadingStreams, setLoadingStreams] = useState(false);
+  const [savingStreams, setSavingStreams] = useState(false);
+  const [draggedStream, setDraggedStream] = useState<Stream | null>(null);
+  
   const { toast } = useToast();
 
   const fetchCategories = async () => {
@@ -59,6 +75,88 @@ const Bouquets = () => {
   useEffect(() => {
     fetchCategories();
   }, []);
+
+  // Fetch streams for selected category
+  const fetchCategoryStreams = async (category: Category) => {
+    setLoadingStreams(true);
+    try {
+      const { data, error } = await supabase
+        .from("streams")
+        .select("id, name, channel_number, status, stream_icon")
+        .eq("category", category.name)
+        .order("channel_number", { ascending: true, nullsFirst: false });
+
+      if (error) throw error;
+      setCategoryStreams(data || []);
+    } catch (error) {
+      console.error("Error fetching streams:", error);
+      toast({ title: "Greška", description: "Nije moguće učitati strimove", variant: "destructive" });
+    } finally {
+      setLoadingStreams(false);
+    }
+  };
+
+  const handleCategoryClick = (category: Category) => {
+    if (category.type === "live") {
+      setSelectedCategory(category);
+      fetchCategoryStreams(category);
+    }
+  };
+
+  const handleCloseStreams = () => {
+    setSelectedCategory(null);
+    setCategoryStreams([]);
+  };
+
+  // Stream drag handlers
+  const handleStreamDragStart = (e: React.DragEvent, stream: Stream) => {
+    setDraggedStream(stream);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleStreamDragOver = (e: React.DragEvent, targetStream: Stream) => {
+    e.preventDefault();
+    if (!draggedStream || draggedStream.id === targetStream.id) return;
+    
+    setCategoryStreams(prev => {
+      const newList = [...prev];
+      const dragIndex = newList.findIndex(s => s.id === draggedStream.id);
+      const dropIndex = newList.findIndex(s => s.id === targetStream.id);
+      
+      if (dragIndex === -1 || dropIndex === -1) return prev;
+      
+      const [removed] = newList.splice(dragIndex, 1);
+      newList.splice(dropIndex, 0, removed);
+      
+      return newList;
+    });
+  };
+
+  const handleStreamDragEnd = () => {
+    setDraggedStream(null);
+  };
+
+  const handleSaveStreamOrder = async () => {
+    setSavingStreams(true);
+    try {
+      const updates = categoryStreams.map((stream, index) => 
+        supabase.from("streams").update({ channel_number: index + 1 }).eq("id", stream.id)
+      );
+
+      await Promise.all(updates);
+      
+      // Update local state with new channel numbers
+      setCategoryStreams(prev => 
+        prev.map((stream, index) => ({ ...stream, channel_number: index + 1 }))
+      );
+      
+      toast({ title: "Spremljeno", description: "Redoslijed strimova ažuriran" });
+    } catch (error: any) {
+      toast({ title: "Greška", description: error.message, variant: "destructive" });
+    } finally {
+      setSavingStreams(false);
+    }
+  };
 
   const handleAddCategory = async () => {
     if (!newCategory.name.trim()) {
@@ -127,7 +225,6 @@ const Bouquets = () => {
       const [removed] = typeCategories.splice(dragIndex, 1);
       typeCategories.splice(dropIndex, 0, removed);
       
-      // Update sort orders
       typeCategories.forEach((cat, index) => {
         cat.sort_order = index;
       });
@@ -199,7 +296,7 @@ const Bouquets = () => {
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold text-foreground">Bouquets / Kategorije</h2>
-              <p className="text-muted-foreground">Sortiraj kategorije povlačenjem</p>
+              <p className="text-muted-foreground">Sortiraj kategorije povlačenjem, klikni na Live kategoriju za sortiranje strimova</p>
             </div>
             
             <div className="flex gap-2">
@@ -253,75 +350,171 @@ const Bouquets = () => {
             </div>
           </div>
 
-          <div className="space-y-6">
-            {(["live", "vod", "series"] as const).map((type) => {
-              const config = typeConfig[type];
-              const Icon = config.icon;
-              const typeCategories = categories
-                .filter(c => c.type === type)
-                .sort((a, b) => a.sort_order - b.sort_order);
-              
-              return (
-                <div key={type} className="glass rounded-xl overflow-hidden">
-                  <button
-                    onClick={() => toggleType(type)}
-                    className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon className={`h-5 w-5 ${config.color}`} />
-                      <span className="font-semibold text-foreground">{config.label}</span>
-                      <Badge variant="secondary">{typeCategories.length}</Badge>
-                    </div>
-                    {expandedTypes[type] ? (
-                      <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    )}
-                  </button>
-                  
-                  {expandedTypes[type] && (
-                    <div className="border-t border-border">
-                      {typeCategories.length === 0 ? (
-                        <p className="p-4 text-sm text-muted-foreground text-center">
-                          Nema kategorija. Dodaj prvu!
-                        </p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Categories List */}
+            <div className="space-y-6">
+              {(["live", "vod", "series"] as const).map((type) => {
+                const config = typeConfig[type];
+                const Icon = config.icon;
+                const typeCategories = categories
+                  .filter(c => c.type === type)
+                  .sort((a, b) => a.sort_order - b.sort_order);
+                
+                return (
+                  <div key={type} className="glass rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => toggleType(type)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon className={`h-5 w-5 ${config.color}`} />
+                        <span className="font-semibold text-foreground">{config.label}</span>
+                        <Badge variant="secondary">{typeCategories.length}</Badge>
+                      </div>
+                      {expandedTypes[type] ? (
+                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
                       ) : (
-                        <div className="divide-y divide-border">
-                          {typeCategories.map((category, index) => (
-                            <div
-                              key={category.id}
-                              draggable
-                              onDragStart={(e) => handleDragStart(e, category)}
-                              onDragOver={(e) => handleDragOver(e, category)}
-                              onDragEnd={handleDragEnd}
-                              className={`flex items-center justify-between p-3 hover:bg-muted/30 transition-colors cursor-move ${
-                                draggedItem?.id === category.id ? "opacity-50 bg-primary/10" : ""
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm font-medium text-muted-foreground w-6">
-                                  {index + 1}.
-                                </span>
-                                <span className="text-foreground">{category.name}</span>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => handleDeleteCategory(category)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
+                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
                       )}
+                    </button>
+                    
+                    {expandedTypes[type] && (
+                      <div className="border-t border-border">
+                        {typeCategories.length === 0 ? (
+                          <p className="p-4 text-sm text-muted-foreground text-center">
+                            Nema kategorija. Dodaj prvu!
+                          </p>
+                        ) : (
+                          <div className="divide-y divide-border">
+                            {typeCategories.map((category, index) => (
+                              <div
+                                key={category.id}
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, category)}
+                                onDragOver={(e) => handleDragOver(e, category)}
+                                onDragEnd={handleDragEnd}
+                                onClick={() => handleCategoryClick(category)}
+                                className={`flex items-center justify-between p-3 hover:bg-muted/30 transition-colors cursor-move ${
+                                  draggedItem?.id === category.id ? "opacity-50 bg-primary/10" : ""
+                                } ${selectedCategory?.id === category.id ? "bg-primary/20 border-l-2 border-primary" : ""} ${
+                                  type === "live" ? "cursor-pointer" : ""
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <GripVertical className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium text-muted-foreground w-6">
+                                    {index + 1}.
+                                  </span>
+                                  <span className="text-foreground">{category.name}</span>
+                                  {type === "live" && (
+                                    <Radio className="h-3 w-3 text-muted-foreground" />
+                                  )}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteCategory(category);
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Stream Sorting Panel */}
+            <div className="glass rounded-xl overflow-hidden">
+              {selectedCategory ? (
+                <>
+                  <div className="flex items-center justify-between p-4 border-b border-border">
+                    <div className="flex items-center gap-3">
+                      <Tv className="h-5 w-5 text-primary" />
+                      <span className="font-semibold text-foreground">
+                        Strimovi: {selectedCategory.name}
+                      </span>
+                      <Badge variant="secondary">{categoryStreams.length}</Badge>
                     </div>
-                  )}
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleSaveStreamOrder}
+                        disabled={savingStreams}
+                      >
+                        <Save className="h-4 w-4 mr-1" />
+                        {savingStreams ? "Spremam..." : "Spremi"}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={handleCloseStreams}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div className="max-h-[600px] overflow-y-auto">
+                    {loadingStreams ? (
+                      <div className="p-8 flex items-center justify-center">
+                        <RefreshCw className="h-6 w-6 animate-spin text-primary" />
+                      </div>
+                    ) : categoryStreams.length === 0 ? (
+                      <p className="p-8 text-sm text-muted-foreground text-center">
+                        Nema strimova u ovoj kategoriji
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-border">
+                        {categoryStreams.map((stream, index) => (
+                          <div
+                            key={stream.id}
+                            draggable
+                            onDragStart={(e) => handleStreamDragStart(e, stream)}
+                            onDragOver={(e) => handleStreamDragOver(e, stream)}
+                            onDragEnd={handleStreamDragEnd}
+                            className={`flex items-center gap-3 p-3 hover:bg-muted/30 transition-colors cursor-move ${
+                              draggedStream?.id === stream.id ? "opacity-50 bg-primary/10" : ""
+                            }`}
+                          >
+                            <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <span className="text-sm font-medium text-muted-foreground w-8 flex-shrink-0">
+                              {index + 1}.
+                            </span>
+                            {stream.stream_icon && (
+                              <img 
+                                src={stream.stream_icon} 
+                                alt="" 
+                                className="h-6 w-6 rounded object-contain flex-shrink-0"
+                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                              />
+                            )}
+                            <span className="text-foreground truncate flex-1">{stream.name}</span>
+                            <Badge 
+                              variant={stream.status === 'active' ? 'default' : 'secondary'}
+                              className="flex-shrink-0"
+                            >
+                              {stream.status === 'active' ? 'ON' : 'OFF'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="p-8 text-center text-muted-foreground">
+                  <Radio className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="font-medium">Odaberi Live kategoriju</p>
+                  <p className="text-sm mt-1">Klikni na Live TV kategoriju da sortiraš strimove unutar nje</p>
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
         </main>
       </div>
