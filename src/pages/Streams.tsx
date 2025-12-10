@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload, Sparkles, RotateCcw, Clock } from "lucide-react";
+import { Plus, Search, Play, Pause, Trash2, Circle, Settings, Subtitles, Video, Tv, RefreshCw, Globe, Download, Eye, Upload, Sparkles, RotateCcw, Clock, Server, Rocket, AlertCircle } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -16,12 +16,15 @@ import { useSettings } from "@/hooks/useSettings";
 import { useLoadBalancers } from "@/hooks/useLoadBalancers";
 import { StreamTestPlayer } from "@/components/StreamTestPlayer";
 import { M3UImportDialog } from "@/components/M3UImportDialog";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const statusConfig = {
-  live: { color: "text-success", bg: "bg-success/20", label: "Live" },
-  inactive: { color: "text-muted-foreground", bg: "bg-muted", label: "Offline" },
-  error: { color: "text-destructive", bg: "bg-destructive/20", label: "Error" },
-  transcoding: { color: "text-warning", bg: "bg-warning/20", label: "Transcoding" },
+  live: { color: "text-success", bg: "bg-success/20", label: "Live", icon: Circle },
+  inactive: { color: "text-muted-foreground", bg: "bg-muted", label: "Offline", icon: Circle },
+  error: { color: "text-destructive", bg: "bg-destructive/20", label: "Error", icon: AlertCircle },
+  transcoding: { color: "text-warning", bg: "bg-warning/20", label: "Transcoding", icon: RefreshCw },
+  down: { color: "text-destructive", bg: "bg-destructive/20", label: "Down", icon: AlertCircle },
 };
 
 const inputTypeLabels: Record<string, string> = {
@@ -139,12 +142,58 @@ const Streams = () => {
   const { streams, loading, addStream, updateStream, deleteStream, toggleStream, refetch, syncAllStreams, resetStream } = useStreams();
   const { loadBalancers } = useLoadBalancers();
   const [syncing, setSyncing] = useState(false);
+  const [deployingLB, setDeployingLB] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const handleSyncAll = async () => {
     setSyncing(true);
     await syncAllStreams();
     setSyncing(false);
   };
+
+  // Deploy LB configuration after stream assignment
+  const handleDeployLB = async (lbId: string) => {
+    const lb = loadBalancers.find(l => l.id === lbId);
+    if (!lb) return;
+
+    setDeployingLB(lbId);
+    try {
+      const { data, error } = await supabase.functions.invoke('lb-deploy', {
+        body: { action: 'deploy', loadBalancerId: lbId }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      toast({ title: "Uspješno", description: `Konfiguracija deploy-ana na ${lb.name}` });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Nepoznata greška';
+      toast({ title: "Greška", description: msg, variant: "destructive" });
+    } finally {
+      setDeployingLB(null);
+    }
+  };
+
+  // Assign LB to stream and auto-deploy
+  const handleAssignLB = async (streamId: string, lbId: string | null) => {
+    const stream = streams.find(s => s.id === streamId);
+    if (!stream) return;
+
+    const oldLbId = stream.load_balancer_id;
+    
+    await updateStream(streamId, { load_balancer_id: lbId });
+
+    // Auto-deploy to new LB
+    if (lbId) {
+      await handleDeployLB(lbId);
+    }
+    
+    // Re-deploy old LB to remove stream
+    if (oldLbId && oldLbId !== lbId) {
+      await handleDeployLB(oldLbId);
+    }
+  };
+
   const { settings, getStreamUrl } = useSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterBouquet, setFilterBouquet] = useState<string | null>(null);
@@ -735,15 +784,19 @@ const Streams = () => {
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
             {filteredStreams.map((stream) => {
               const status = statusConfig[stream.status as keyof typeof statusConfig] || statusConfig.inactive;
+              const StatusIcon = status.icon || Circle;
+              const assignedLB = loadBalancers.find(lb => lb.id === stream.load_balancer_id);
+              const isDown = stream.status === 'down' || stream.status === 'error';
+              
               return (
-                <div key={stream.id} className="glass rounded-xl p-5">
+                <div key={stream.id} className={`glass rounded-xl p-5 ${isDown ? 'border border-destructive/50 bg-destructive/5' : ''}`}>
                   <div className="mb-3 flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-foreground truncate">{stream.name}</h3>
                       <p className="text-xs text-muted-foreground truncate">{stream.input_url}</p>
                     </div>
                     <span className={`ml-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${status.bg} ${status.color}`}>
-                      <Circle className="h-2 w-2 fill-current" />
+                      <StatusIcon className={`h-2 w-2 ${stream.status === 'live' ? 'fill-current' : ''} ${stream.status === 'transcoding' ? 'animate-spin' : ''}`} />
                       {status.label}
                     </span>
                   </div>
@@ -773,6 +826,33 @@ const Streams = () => {
                         {stream.webvtt_language?.toUpperCase()}
                       </Badge>
                     )}
+                    {assignedLB && (
+                      <Badge variant="outline" className="text-xs bg-cyan-500/10 text-cyan-400 border-cyan-500/30">
+                        <Server className="h-3 w-3 mr-1" />
+                        {assignedLB.name}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Load Balancer Selector */}
+                  <div className="mb-3">
+                    <Select 
+                      value={stream.load_balancer_id || "none"} 
+                      onValueChange={(v) => handleAssignLB(stream.id, v === "none" ? null : v)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <Server className="h-3 w-3 mr-1.5 text-muted-foreground" />
+                        <SelectValue placeholder="Load Balancer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Bez LB (Direct)</SelectItem>
+                        {loadBalancers.map(lb => (
+                          <SelectItem key={lb.id} value={lb.id}>
+                            {lb.name} ({lb.ip_address})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   
                   <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
@@ -789,6 +869,8 @@ const Streams = () => {
                       <p className="font-semibold text-foreground">
                         {stream.status === "live" && stream.online_since ? (
                           <OnlineTimer since={stream.online_since} />
+                        ) : isDown ? (
+                          <span className="text-destructive">DOWN</span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}

@@ -43,6 +43,7 @@ export interface Stream {
   epg_channel_id: string | null;
   proxy_mode: string | null;
   online_since?: string | null;
+  load_balancer_id?: string | null;
 }
 
 // Call backend through Edge Function to avoid CORS/mixed-content issues
