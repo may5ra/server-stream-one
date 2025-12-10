@@ -394,7 +394,7 @@ const Users = () => {
                         placeholder="00:1A:79:XX:XX:XX"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Portal URL: {window.location.origin.replace('localhost:8080', window.location.hostname)}/functions/v1/stalker-portal?mac={editingUser.mac_address || 'XX:XX:XX:XX:XX:XX'}
+                        Portal URL: {getServerUrl()}/stalker?mac={editingUser.mac_address || 'XX:XX:XX:XX:XX:XX'}
                       </p>
                     </div>
                     <div className="space-y-2">
