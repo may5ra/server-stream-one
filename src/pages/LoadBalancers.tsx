@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Plus, Server, Trash2, Edit, RefreshCw, Network, Key, Play, Settings, Eye, EyeOff } from "lucide-react";
+import { Plus, Server, Trash2, Edit, RefreshCw, Network, Key, Play, Settings, Eye, EyeOff, Activity } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LBMonitoring } from "@/components/LBMonitoring";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -275,48 +277,61 @@ const LoadBalancers = () => {
             </Dialog>
           </div>
 
-          {/* Stats */}
-          <div className="mb-6 grid gap-4 grid-cols-2 lg:grid-cols-3">
-            <div className="glass rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-                  <Network className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{loadBalancers.length}</p>
-                  <p className="text-sm text-muted-foreground">Ukupno LB-ova</p>
-                </div>
-              </div>
-            </div>
-            <div className="glass rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/20">
-                  <Server className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {loadBalancers.filter(lb => lb.status === "active").length}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Aktivnih</p>
-                </div>
-              </div>
-            </div>
-            <div className="glass rounded-xl p-4 col-span-2 lg:col-span-1">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/20">
-                  <RefreshCw className="h-5 w-5 text-accent" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {loadBalancers.reduce((sum, lb) => sum + lb.current_streams, 0)}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Aktivnih streamova</p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Tabs defaultValue="overview" className="space-y-6">
+            <TabsList className="glass">
+              <TabsTrigger value="overview" className="gap-2">
+                <Network className="h-4 w-4" />
+                Pregled
+              </TabsTrigger>
+              <TabsTrigger value="monitoring" className="gap-2">
+                <Activity className="h-4 w-4" />
+                Monitoring
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Load Balancers Grid */}
+            <TabsContent value="overview" className="space-y-6">
+              {/* Stats */}
+              <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
+                <div className="glass rounded-xl p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
+                      <Network className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-foreground">{loadBalancers.length}</p>
+                      <p className="text-sm text-muted-foreground">Ukupno LB-ova</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="glass rounded-xl p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/20">
+                      <Server className="h-5 w-5 text-success" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-foreground">
+                        {loadBalancers.filter(lb => lb.status === "active").length}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Aktivnih</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="glass rounded-xl p-4 col-span-2 lg:col-span-1">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/20">
+                      <RefreshCw className="h-5 w-5 text-accent" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-foreground">
+                        {loadBalancers.reduce((sum, lb) => sum + lb.current_streams, 0)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Aktivnih streamova</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Load Balancers Grid */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {loadBalancers.map((lb) => {
               const server = servers.find(s => s.id === lb.server_id);
@@ -425,6 +440,12 @@ const LoadBalancers = () => {
               </div>
             )}
           </div>
+            </TabsContent>
+
+            <TabsContent value="monitoring">
+              <LBMonitoring loadBalancers={loadBalancers} onRefresh={() => {}} />
+            </TabsContent>
+          </Tabs>
         </main>
       </div>
 
