@@ -15,6 +15,7 @@ export interface StreamingUser {
   created_at: string;
   reseller_id?: string | null;
   bouquets?: string[];
+  mac_address?: string | null;
 }
 
 export const useStreamingUsers = () => {
@@ -116,6 +117,7 @@ export const useStreamingUsers = () => {
     max_connections: number;
     expiry_date: string;
     bouquets?: string[];
+    mac_address?: string;
   }) => {
     const { data, error } = await supabase
       .from("streaming_users")
@@ -125,6 +127,7 @@ export const useStreamingUsers = () => {
         max_connections: user.max_connections,
         expiry_date: user.expiry_date,
         bouquets: user.bouquets || [],
+        mac_address: user.mac_address || null,
         status: "offline", 
         connections: 0 
       }])

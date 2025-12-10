@@ -499,6 +499,7 @@ export type Database = {
           expiry_date: string
           id: string
           last_active: string | null
+          mac_address: string | null
           max_connections: number | null
           password: string
           reseller_id: string | null
@@ -513,6 +514,7 @@ export type Database = {
           expiry_date: string
           id?: string
           last_active?: string | null
+          mac_address?: string | null
           max_connections?: number | null
           password: string
           reseller_id?: string | null
@@ -527,6 +529,7 @@ export type Database = {
           expiry_date?: string
           id?: string
           last_active?: string | null
+          mac_address?: string | null
           max_connections?: number | null
           password?: string
           reseller_id?: string | null

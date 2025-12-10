@@ -41,6 +41,7 @@ const Users = () => {
     max_connections: "1",
     expiry_date: "",
     bouquets: [] as string[],
+    mac_address: "",
   });
 
   const filteredUsers = users.filter(user =>
@@ -72,8 +73,9 @@ const Users = () => {
         max_connections: parseInt(newUser.max_connections),
         expiry_date: newUser.expiry_date,
         bouquets: newUser.bouquets,
+        mac_address: newUser.mac_address || undefined,
       });
-      setNewUser({ username: "", password: "", max_connections: "1", expiry_date: "", bouquets: [] });
+      setNewUser({ username: "", password: "", max_connections: "1", expiry_date: "", bouquets: [], mac_address: "" });
       setIsAddOpen(false);
       toast({ title: "Success", description: "User created successfully" });
     } catch (error: any) {
@@ -109,6 +111,7 @@ const Users = () => {
         expiry_date: editingUser.expiry_date,
         status: editingUser.status,
         bouquets: editingUser.bouquets || [],
+        mac_address: editingUser.mac_address || null,
       });
       setIsEditOpen(false);
       setEditingUser(null);
@@ -282,6 +285,15 @@ const Users = () => {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label>MAC Address (za MAG/STB uređaje)</Label>
+                    <Input
+                      value={newUser.mac_address}
+                      onChange={(e) => setNewUser({ ...newUser, mac_address: e.target.value.toUpperCase() })}
+                      placeholder="00:1A:79:XX:XX:XX"
+                    />
+                    <p className="text-xs text-muted-foreground">Opcionalno - za MAG portale</p>
+                  </div>
+                  <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Package className="h-4 w-4" />
                       Bouquets (prazno = svi)
@@ -373,6 +385,17 @@ const Users = () => {
                         value={editingUser.expiry_date}
                         onChange={(e) => setEditingUser({ ...editingUser, expiry_date: e.target.value })}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>MAC Address (za MAG/STB uređaje)</Label>
+                      <Input
+                        value={editingUser.mac_address || ""}
+                        onChange={(e) => setEditingUser({ ...editingUser, mac_address: e.target.value.toUpperCase() })}
+                        placeholder="00:1A:79:XX:XX:XX"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Portal URL: {window.location.origin.replace('localhost:8080', window.location.hostname)}/functions/v1/stalker-portal?mac={editingUser.mac_address || 'XX:XX:XX:XX:XX:XX'}
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label>Status</Label>

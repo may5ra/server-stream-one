@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.lb-deploy]
 verify_jwt = false
+
+[functions.stalker-portal]
+verify_jwt = false
