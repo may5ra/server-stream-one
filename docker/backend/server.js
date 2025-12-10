@@ -135,6 +135,431 @@ setInterval(async () => {
 app.use(cors());
 app.use(express.json());
 
+// ==================== STALKER PORTAL API (MUST BE BEFORE CATCH-ALL ROUTES) ====================
+// Compatible with MAG devices and Stalker middleware
+
+function generateStalkerToken() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 32; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+// Main Stalker Portal handler
+async function handleStalkerRequest(req, res) {
+  try {
+    const type = req.query.type || '';
+    const action = req.query.action || '';
+    
+    // Extract MAC address from various sources
+    let mac = req.query.mac || 
+              req.headers['x-stb-mac'] || 
+              req.cookies?.mac ||
+              '';
+    
+    // Clean MAC address
+    mac = mac.replace(/%3A/gi, ':').toUpperCase();
+    
+    console.log(`[Stalker] Request: type=${type}, action=${action}, mac=${mac}`);
+    
+    // Handle handshake
+    if (type === 'stb' && action === 'handshake') {
+      return res.json({
+        js: { token: generateStalkerToken() }
+      });
+    }
+    
+    // Handle auth
+    if (type === 'stb' && action === 'do_auth') {
+      if (!mac) {
+        return res.json({ js: { error: 'No MAC address provided' } });
+      }
+      
+      // Find user by MAC
+      const userResult = await pool.query(
+        'SELECT * FROM streaming_users WHERE mac_address = $1',
+        [mac]
+      );
+      
+      if (userResult.rows.length === 0) {
+        return res.json({ js: { error: 'Device not registered' } });
+      }
+      
+      const user = userResult.rows[0];
+      
+      // Check expiry
+      if (new Date(user.expiry_date) < new Date()) {
+        return res.json({ js: { error: 'Subscription expired' } });
+      }
+      
+      return res.json({ js: true });
+    }
+    
+    // Get profile
+    if (type === 'stb' && action === 'get_profile') {
+      if (!mac) {
+        return res.json({
+          js: {
+            id: 1,
+            name: 'Guest',
+            login: '',
+            password: '',
+            parent_password: '0000',
+            status: 0,
+            sname: '',
+            stb_type: 'MAG250',
+            mac: '',
+            fav_channels: [],
+            theme: 'default'
+          }
+        });
+      }
+      
+      const userResult = await pool.query(
+        'SELECT * FROM streaming_users WHERE mac_address = $1',
+        [mac]
+      );
+      
+      if (userResult.rows.length === 0) {
+        return res.json({ js: { error: 'Device not registered' } });
+      }
+      
+      const user = userResult.rows[0];
+      
+      return res.json({
+        js: {
+          id: parseInt(user.id.replace(/-/g, '').slice(0, 8), 16) || 1,
+          name: user.username,
+          login: user.username,
+          password: user.password,
+          parent_password: '0000',
+          status: user.status === 'active' ? 1 : 0,
+          sname: user.username,
+          stb_type: 'MAG250',
+          mac: mac,
+          fav_channels: [],
+          theme: 'default'
+        }
+      });
+    }
+    
+    // Get live TV genres/categories
+    if (type === 'itv' && action === 'get_genres') {
+      const result = await pool.query('SELECT id, name, sort_order FROM live_categories ORDER BY sort_order');
+      
+      const genres = result.rows.map((cat, idx) => ({
+        id: cat.id,
+        title: cat.name,
+        alias: cat.name.toLowerCase().replace(/\s+/g, '_'),
+        number: cat.sort_order || idx + 1,
+        censored: '0'
+      }));
+      
+      return res.json({ js: genres });
+    }
+    
+    // Get live TV channels
+    if (type === 'itv' && (action === 'get_all_channels' || action === 'get_ordered_list')) {
+      const genre = req.query.genre || '';
+      const p = parseInt(req.query.p) || 1;
+      
+      let query = 'SELECT s.*, lc.name as category_name FROM streams s LEFT JOIN live_categories lc ON s.category = lc.id WHERE 1=1';
+      const params = [];
+      
+      if (genre && genre !== '*') {
+        params.push(genre);
+        query += ` AND s.category = $${params.length}`;
+      }
+      
+      query += ' ORDER BY s.channel_number ASC NULLS LAST, s.name ASC';
+      
+      const result = await pool.query(query, params);
+      
+      const serverDomain = process.env.SERVER_DOMAIN || req.hostname;
+      const httpPort = process.env.HTTP_PORT || '80';
+      const portSuffix = (httpPort !== '80') ? `:${httpPort}` : '';
+      
+      const channels = result.rows.map((stream, idx) => ({
+        id: stream.id,
+        name: stream.name,
+        number: stream.channel_number || (idx + 1),
+        cmd: `http://${serverDomain}${portSuffix}/live/${encodeURIComponent(stream.name)}`,
+        tv_genre_id: stream.category || '',
+        logo: stream.stream_icon || '',
+        epg: stream.epg_channel_id || '',
+        added: stream.created_at,
+        modified: stream.updated_at,
+        status: stream.status === 'live' ? 1 : 0,
+        censored: 0,
+        use_http_tmp_link: 0,
+        allow_pvr: 1,
+        allow_local_pvr: 1,
+        allow_local_timeshift: 1
+      }));
+      
+      return res.json({
+        js: {
+          total_items: channels.length,
+          max_page_items: 20,
+          selected_item: 0,
+          cur_page: p,
+          data: channels
+        }
+      });
+    }
+    
+    // Get EPG
+    if (type === 'itv' && action === 'get_epg_info') {
+      return res.json({ js: { data: [] } });
+    }
+    
+    // Get VOD categories
+    if (type === 'vod' && action === 'get_categories') {
+      const result = await pool.query('SELECT id, name, sort_order FROM vod_categories ORDER BY sort_order');
+      
+      const categories = result.rows.map((cat, idx) => ({
+        id: cat.id,
+        title: cat.name,
+        alias: cat.name.toLowerCase().replace(/\s+/g, '_'),
+        number: cat.sort_order || idx + 1,
+        censored: '0'
+      }));
+      
+      return res.json({ js: categories });
+    }
+    
+    // Get VOD content
+    if (type === 'vod' && action === 'get_ordered_list') {
+      const category = req.query.category || '';
+      const p = parseInt(req.query.p) || 1;
+      
+      let query = 'SELECT * FROM vod_content WHERE 1=1';
+      const params = [];
+      
+      if (category && category !== '*') {
+        params.push(category);
+        query += ` AND category_id = $${params.length}`;
+      }
+      
+      query += ' ORDER BY name ASC';
+      
+      const result = await pool.query(query, params);
+      
+      const serverDomain = process.env.SERVER_DOMAIN || req.hostname;
+      const httpPort = process.env.HTTP_PORT || '80';
+      const portSuffix = (httpPort !== '80') ? `:${httpPort}` : '';
+      
+      const movies = result.rows.map((vod) => ({
+        id: vod.id,
+        name: vod.name,
+        o_name: vod.name,
+        description: vod.plot || '',
+        director: vod.director || '',
+        actors: vod.cast_names || '',
+        year: vod.release_date ? new Date(vod.release_date).getFullYear() : '',
+        rating_imdb: vod.rating || 0,
+        rating_kinopoisk: 0,
+        genres_str: vod.genre || '',
+        cover: vod.cover_url || '',
+        cmd: `http://${serverDomain}${portSuffix}/vod/${vod.id}`,
+        added: vod.added || vod.created_at,
+        time: vod.duration || 0,
+        status: 1,
+        category_id: vod.category_id || ''
+      }));
+      
+      return res.json({
+        js: {
+          total_items: movies.length,
+          max_page_items: 14,
+          selected_item: 0,
+          cur_page: p,
+          data: movies
+        }
+      });
+    }
+    
+    // Get series categories
+    if (type === 'series' && action === 'get_categories') {
+      const result = await pool.query('SELECT id, name, sort_order FROM series_categories ORDER BY sort_order');
+      
+      const categories = result.rows.map((cat, idx) => ({
+        id: cat.id,
+        title: cat.name,
+        alias: cat.name.toLowerCase().replace(/\s+/g, '_'),
+        number: cat.sort_order || idx + 1,
+        censored: '0'
+      }));
+      
+      return res.json({ js: categories });
+    }
+    
+    // Get series list
+    if (type === 'series' && action === 'get_ordered_list') {
+      const category = req.query.category || '';
+      const p = parseInt(req.query.p) || 1;
+      
+      let query = 'SELECT * FROM series WHERE 1=1';
+      const params = [];
+      
+      if (category && category !== '*') {
+        params.push(category);
+        query += ` AND category_id = $${params.length}`;
+      }
+      
+      query += ' ORDER BY name ASC';
+      
+      const result = await pool.query(query, params);
+      
+      const seriesList = result.rows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        o_name: s.name,
+        description: s.plot || '',
+        director: s.director || '',
+        actors: s.cast_names || '',
+        year: s.release_date ? new Date(s.release_date).getFullYear() : '',
+        rating_imdb: s.rating || 0,
+        genres_str: s.genre || '',
+        cover: s.cover_url || '',
+        status: 1,
+        category_id: s.category_id || ''
+      }));
+      
+      return res.json({
+        js: {
+          total_items: seriesList.length,
+          max_page_items: 14,
+          selected_item: 0,
+          cur_page: p,
+          data: seriesList
+        }
+      });
+    }
+    
+    // Watchdog
+    if (type === 'watchdog' && action === 'get_events') {
+      return res.json({ js: { data: [] } });
+    }
+    
+    // Account info
+    if (type === 'account_info' && action === 'get_main_info') {
+      if (!mac) {
+        return res.json({ js: { error: 'No MAC address' } });
+      }
+      
+      const userResult = await pool.query(
+        'SELECT * FROM streaming_users WHERE mac_address = $1',
+        [mac]
+      );
+      
+      if (userResult.rows.length === 0) {
+        return res.json({ js: { error: 'User not found' } });
+      }
+      
+      const user = userResult.rows[0];
+      
+      return res.json({
+        js: {
+          mac: mac,
+          phone: '',
+          login: user.username,
+          tariff_plan: 'Standard',
+          tariff_expired: new Date(user.expiry_date).toISOString().split('T')[0],
+          tariff_end_date: new Date(user.expiry_date).toISOString().split('T')[0],
+          account_balance: 0,
+          fname: '',
+          lname: ''
+        }
+      });
+    }
+    
+    // Main menu
+    if (type === 'main_menu') {
+      return res.json({
+        js: [
+          { id: 'tv', title: 'TV', icon: 'tv' },
+          { id: 'vod', title: 'Video Club', icon: 'vod' },
+          { id: 'series', title: 'Series', icon: 'series' },
+          { id: 'settings', title: 'Settings', icon: 'settings' }
+        ]
+      });
+    }
+    
+    // Default empty response
+    console.log(`[Stalker] Unhandled: type=${type}, action=${action}`);
+    return res.json({ js: {} });
+    
+  } catch (error) {
+    console.error('[Stalker] Error:', error);
+    return res.status(500).json({ js: { error: error.message } });
+  }
+}
+
+// Stalker Portal routes - MUST be before catch-all routes!
+app.get('/c/', handleStalkerRequest);
+app.get('/c', handleStalkerRequest);
+app.get('/stalker-portal', handleStalkerRequest);
+app.get('/stalker-portal/', handleStalkerRequest);
+app.get('/stalker', handleStalkerRequest);
+app.get('/stalker/', handleStalkerRequest);
+
+// Live stream for MAG devices (before catch-all)
+app.get('/live/:streamName', async (req, res) => {
+  try {
+    const { streamName } = req.params;
+    const decodedName = decodeURIComponent(streamName);
+    
+    console.log(`[Live] MAG request for: ${decodedName}`);
+    
+    // Get stream
+    const result = await pool.query('SELECT input_url FROM streams WHERE name = $1', [decodedName]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).send('Stream not found');
+    }
+    
+    // Redirect to source or proxy
+    const inputUrl = result.rows[0].input_url;
+    
+    // For HLS, redirect directly
+    if (inputUrl.includes('.m3u8')) {
+      return res.redirect(302, inputUrl);
+    }
+    
+    // For other streams, proxy through existing mechanism
+    res.redirect(302, `/proxy/${encodeURIComponent(streamName)}/index.m3u8`);
+    
+  } catch (error) {
+    console.error('[Live] Error:', error);
+    res.status(500).send('Stream error');
+  }
+});
+
+// VOD stream for MAG devices (before catch-all)
+app.get('/vod/:vodId', async (req, res) => {
+  try {
+    const { vodId } = req.params;
+    
+    console.log(`[VOD] MAG request for: ${vodId}`);
+    
+    const result = await pool.query('SELECT stream_url FROM vod_content WHERE id = $1', [vodId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).send('VOD not found');
+    }
+    
+    // Redirect to source
+    res.redirect(302, result.rows[0].stream_url);
+    
+  } catch (error) {
+    console.error('[VOD] Error:', error);
+    res.status(500).send('VOD error');
+  }
+});
+
 // Auth middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -2445,430 +2870,7 @@ app.get('/series/:username/:password/:episodeId', async (req, res) => {
   }
 });
 
-// ==================== STALKER PORTAL API ====================
-// Compatible with MAG devices and Stalker middleware
-
-function generateToken() {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 32; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-// Main Stalker Portal handler
-async function handleStalkerRequest(req, res) {
-  try {
-    const type = req.query.type || '';
-    const action = req.query.action || '';
-    
-    // Extract MAC address from various sources
-    let mac = req.query.mac || 
-              req.headers['x-stb-mac'] || 
-              req.cookies?.mac ||
-              '';
-    
-    // Clean MAC address
-    mac = mac.replace(/%3A/gi, ':').toUpperCase();
-    
-    console.log(`[Stalker] Request: type=${type}, action=${action}, mac=${mac}`);
-    
-    // Handle handshake
-    if (type === 'stb' && action === 'handshake') {
-      return res.json({
-        js: { token: generateToken() }
-      });
-    }
-    
-    // Handle auth
-    if (type === 'stb' && action === 'do_auth') {
-      if (!mac) {
-        return res.json({ js: { error: 'No MAC address provided' } });
-      }
-      
-      // Find user by MAC
-      const userResult = await pool.query(
-        'SELECT * FROM streaming_users WHERE mac_address = $1',
-        [mac]
-      );
-      
-      if (userResult.rows.length === 0) {
-        return res.json({ js: { error: 'Device not registered' } });
-      }
-      
-      const user = userResult.rows[0];
-      
-      // Check expiry
-      if (new Date(user.expiry_date) < new Date()) {
-        return res.json({ js: { error: 'Subscription expired' } });
-      }
-      
-      return res.json({ js: true });
-    }
-    
-    // Get profile
-    if (type === 'stb' && action === 'get_profile') {
-      if (!mac) {
-        return res.json({
-          js: {
-            id: 1,
-            name: 'Guest',
-            login: '',
-            password: '',
-            parent_password: '0000',
-            status: 0,
-            sname: '',
-            stb_type: 'MAG250',
-            mac: '',
-            fav_channels: [],
-            theme: 'default'
-          }
-        });
-      }
-      
-      const userResult = await pool.query(
-        'SELECT * FROM streaming_users WHERE mac_address = $1',
-        [mac]
-      );
-      
-      if (userResult.rows.length === 0) {
-        return res.json({ js: { error: 'Device not registered' } });
-      }
-      
-      const user = userResult.rows[0];
-      
-      return res.json({
-        js: {
-          id: parseInt(user.id.replace(/-/g, '').slice(0, 8), 16) || 1,
-          name: user.username,
-          login: user.username,
-          password: user.password,
-          parent_password: '0000',
-          status: user.status === 'active' ? 1 : 0,
-          sname: user.username,
-          stb_type: 'MAG250',
-          mac: mac,
-          fav_channels: [],
-          theme: 'default'
-        }
-      });
-    }
-    
-    // Get live TV genres/categories
-    if (type === 'itv' && action === 'get_genres') {
-      const result = await pool.query('SELECT id, name, sort_order FROM live_categories ORDER BY sort_order');
-      
-      const genres = result.rows.map((cat, idx) => ({
-        id: cat.id,
-        title: cat.name,
-        alias: cat.name.toLowerCase().replace(/\s+/g, '_'),
-        number: cat.sort_order || idx + 1,
-        censored: '0'
-      }));
-      
-      return res.json({ js: genres });
-    }
-    
-    // Get live TV channels
-    if (type === 'itv' && (action === 'get_all_channels' || action === 'get_ordered_list')) {
-      const genre = req.query.genre || '';
-      const p = parseInt(req.query.p) || 1;
-      const sortby = req.query.sortby || 'number';
-      
-      let query = 'SELECT s.*, lc.name as category_name FROM streams s LEFT JOIN live_categories lc ON s.category = lc.id WHERE 1=1';
-      const params = [];
-      
-      if (genre && genre !== '*') {
-        params.push(genre);
-        query += ` AND s.category = $${params.length}`;
-      }
-      
-      query += ' ORDER BY s.channel_number ASC NULLS LAST, s.name ASC';
-      
-      const result = await pool.query(query, params);
-      
-      const serverDomain = process.env.SERVER_DOMAIN || req.hostname;
-      const httpPort = process.env.HTTP_PORT || '80';
-      const portSuffix = (httpPort !== '80') ? `:${httpPort}` : '';
-      
-      const channels = result.rows.map((stream, idx) => ({
-        id: stream.id,
-        name: stream.name,
-        number: stream.channel_number || (idx + 1),
-        cmd: `http://${serverDomain}${portSuffix}/live/${encodeURIComponent(stream.name)}`,
-        tv_genre_id: stream.category || '',
-        logo: stream.stream_icon || '',
-        epg: stream.epg_channel_id || '',
-        added: stream.created_at,
-        modified: stream.updated_at,
-        status: stream.status === 'live' ? 1 : 0,
-        censored: 0,
-        use_http_tmp_link: 0,
-        allow_pvr: 1,
-        allow_local_pvr: 1,
-        allow_local_timeshift: 1
-      }));
-      
-      return res.json({
-        js: {
-          total_items: channels.length,
-          max_page_items: 20,
-          selected_item: 0,
-          cur_page: p,
-          data: channels
-        }
-      });
-    }
-    
-    // Get EPG
-    if (type === 'itv' && action === 'get_epg_info') {
-      const period = parseInt(req.query.period) || 24;
-      return res.json({ js: { data: [] } });
-    }
-    
-    // Get VOD categories
-    if (type === 'vod' && action === 'get_categories') {
-      const result = await pool.query('SELECT id, name, sort_order FROM vod_categories ORDER BY sort_order');
-      
-      const categories = result.rows.map((cat, idx) => ({
-        id: cat.id,
-        title: cat.name,
-        alias: cat.name.toLowerCase().replace(/\s+/g, '_'),
-        number: cat.sort_order || idx + 1,
-        censored: '0'
-      }));
-      
-      return res.json({ js: categories });
-    }
-    
-    // Get VOD content
-    if (type === 'vod' && action === 'get_ordered_list') {
-      const category = req.query.category || '';
-      const p = parseInt(req.query.p) || 1;
-      
-      let query = 'SELECT * FROM vod_content WHERE 1=1';
-      const params = [];
-      
-      if (category && category !== '*') {
-        params.push(category);
-        query += ` AND category_id = $${params.length}`;
-      }
-      
-      query += ' ORDER BY name ASC';
-      
-      const result = await pool.query(query, params);
-      
-      const serverDomain = process.env.SERVER_DOMAIN || req.hostname;
-      const httpPort = process.env.HTTP_PORT || '80';
-      const portSuffix = (httpPort !== '80') ? `:${httpPort}` : '';
-      
-      const movies = result.rows.map((vod, idx) => ({
-        id: vod.id,
-        name: vod.name,
-        o_name: vod.name,
-        description: vod.plot || '',
-        director: vod.director || '',
-        actors: vod.cast_names || '',
-        year: vod.release_date ? new Date(vod.release_date).getFullYear() : '',
-        rating_imdb: vod.rating || 0,
-        rating_kinopoisk: 0,
-        genres_str: vod.genre || '',
-        cover: vod.cover_url || '',
-        cmd: `http://${serverDomain}${portSuffix}/vod/${vod.id}`,
-        added: vod.added || vod.created_at,
-        time: vod.duration || 0,
-        status: 1,
-        category_id: vod.category_id || ''
-      }));
-      
-      return res.json({
-        js: {
-          total_items: movies.length,
-          max_page_items: 14,
-          selected_item: 0,
-          cur_page: p,
-          data: movies
-        }
-      });
-    }
-    
-    // Get series categories
-    if (type === 'series' && action === 'get_categories') {
-      const result = await pool.query('SELECT id, name, sort_order FROM series_categories ORDER BY sort_order');
-      
-      const categories = result.rows.map((cat, idx) => ({
-        id: cat.id,
-        title: cat.name,
-        alias: cat.name.toLowerCase().replace(/\s+/g, '_'),
-        number: cat.sort_order || idx + 1,
-        censored: '0'
-      }));
-      
-      return res.json({ js: categories });
-    }
-    
-    // Get series list
-    if (type === 'series' && action === 'get_ordered_list') {
-      const category = req.query.category || '';
-      const p = parseInt(req.query.p) || 1;
-      
-      let query = 'SELECT * FROM series WHERE 1=1';
-      const params = [];
-      
-      if (category && category !== '*') {
-        params.push(category);
-        query += ` AND category_id = $${params.length}`;
-      }
-      
-      query += ' ORDER BY name ASC';
-      
-      const result = await pool.query(query, params);
-      
-      const seriesList = result.rows.map((s, idx) => ({
-        id: s.id,
-        name: s.name,
-        o_name: s.name,
-        description: s.plot || '',
-        director: s.director || '',
-        actors: s.cast_names || '',
-        year: s.release_date ? new Date(s.release_date).getFullYear() : '',
-        rating_imdb: s.rating || 0,
-        genres_str: s.genre || '',
-        cover: s.cover_url || '',
-        status: 1,
-        category_id: s.category_id || ''
-      }));
-      
-      return res.json({
-        js: {
-          total_items: seriesList.length,
-          max_page_items: 14,
-          selected_item: 0,
-          cur_page: p,
-          data: seriesList
-        }
-      });
-    }
-    
-    // Watchdog
-    if (type === 'watchdog' && action === 'get_events') {
-      return res.json({ js: { data: [] } });
-    }
-    
-    // Account info
-    if (type === 'account_info' && action === 'get_main_info') {
-      if (!mac) {
-        return res.json({ js: { error: 'No MAC address' } });
-      }
-      
-      const userResult = await pool.query(
-        'SELECT * FROM streaming_users WHERE mac_address = $1',
-        [mac]
-      );
-      
-      if (userResult.rows.length === 0) {
-        return res.json({ js: { error: 'User not found' } });
-      }
-      
-      const user = userResult.rows[0];
-      
-      return res.json({
-        js: {
-          mac: mac,
-          phone: '',
-          login: user.username,
-          tariff_plan: 'Standard',
-          tariff_expired: new Date(user.expiry_date).toISOString().split('T')[0],
-          tariff_end_date: new Date(user.expiry_date).toISOString().split('T')[0],
-          account_balance: 0,
-          fname: '',
-          lname: ''
-        }
-      });
-    }
-    
-    // Main menu
-    if (type === 'main_menu') {
-      return res.json({
-        js: [
-          { id: 'tv', title: 'TV', icon: 'tv' },
-          { id: 'vod', title: 'Video Club', icon: 'vod' },
-          { id: 'series', title: 'Series', icon: 'series' },
-          { id: 'settings', title: 'Settings', icon: 'settings' }
-        ]
-      });
-    }
-    
-    // Default empty response
-    console.log(`[Stalker] Unhandled: type=${type}, action=${action}`);
-    return res.json({ js: {} });
-    
-  } catch (error) {
-    console.error('[Stalker] Error:', error);
-    return res.status(500).json({ js: { error: error.message } });
-  }
-}
-
-// Stalker Portal routes - all /c/ paths
-app.get('/c/', handleStalkerRequest);
-app.get('/c', handleStalkerRequest);
-app.get('/stalker-portal', handleStalkerRequest);
-app.get('/stalker', handleStalkerRequest);
-
-// Live stream for MAG devices
-app.get('/live/:streamName', async (req, res) => {
-  try {
-    const { streamName } = req.params;
-    const decodedName = decodeURIComponent(streamName);
-    
-    console.log(`[Live] MAG request for: ${decodedName}`);
-    
-    // Get stream
-    const result = await pool.query('SELECT input_url FROM streams WHERE name = $1', [decodedName]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).send('Stream not found');
-    }
-    
-    // Redirect to source or proxy
-    const inputUrl = result.rows[0].input_url;
-    
-    // For HLS, redirect directly
-    if (inputUrl.includes('.m3u8')) {
-      return res.redirect(302, inputUrl);
-    }
-    
-    // For other streams, proxy through existing mechanism
-    res.redirect(302, `/proxy/${encodeURIComponent(streamName)}/index.m3u8`);
-    
-  } catch (error) {
-    console.error('[Live] Error:', error);
-    res.status(500).send('Stream error');
-  }
-});
-
-// VOD stream for MAG devices
-app.get('/vod/:vodId', async (req, res) => {
-  try {
-    const { vodId } = req.params;
-    
-    console.log(`[VOD] MAG request for: ${vodId}`);
-    
-    const result = await pool.query('SELECT stream_url FROM vod_content WHERE id = $1', [vodId]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).send('VOD not found');
-    }
-    
-    // Redirect to source
-    res.redirect(302, result.rows[0].stream_url);
-    
-  } catch (error) {
-    console.error('[VOD] Error:', error);
-    res.status(500).send('VOD error');
-  }
-});
+// Note: Stalker Portal routes are defined earlier in the file (before catch-all routes)
 
 // Health check
 app.get('/health', (req, res) => {
