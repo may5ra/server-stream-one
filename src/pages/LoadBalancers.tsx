@@ -332,7 +332,7 @@ const LoadBalancers = () => {
               </div>
 
               {/* Load Balancers Grid */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {loadBalancers.map((lb) => {
               const server = servers.find(s => s.id === lb.server_id);
               const usagePercent = lb.max_streams > 0 ? (lb.current_streams / lb.max_streams) * 100 : 0;
@@ -439,7 +439,7 @@ const LoadBalancers = () => {
                 </Button>
               </div>
             )}
-          </div>
+              </div>
             </TabsContent>
 
             <TabsContent value="monitoring">
