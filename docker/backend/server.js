@@ -135,6 +135,17 @@ setInterval(async () => {
 app.use(cors());
 app.use(express.json());
 
+// Debug middleware - log ALL incoming requests
+app.use((req, res, next) => {
+  console.log(`[DEBUG] ${req.method} ${req.path} - Query: ${JSON.stringify(req.query)}`);
+  next();
+});
+
+// Stalker Portal routes - handle ALL methods (GET, POST, etc.)
+// These MUST be first, before any other routes!
+app.all('/c', handleStalkerRequest);
+app.all('/c/', handleStalkerRequest);
+
 // ==================== STALKER PORTAL API (MUST BE BEFORE CATCH-ALL ROUTES) ====================
 // Compatible with MAG devices and Stalker middleware
 
@@ -498,13 +509,11 @@ async function handleStalkerRequest(req, res) {
   }
 }
 
-// Stalker Portal routes - MUST be before catch-all routes!
-app.get('/c/', handleStalkerRequest);
-app.get('/c', handleStalkerRequest);
-app.get('/stalker-portal', handleStalkerRequest);
-app.get('/stalker-portal/', handleStalkerRequest);
-app.get('/stalker', handleStalkerRequest);
-app.get('/stalker/', handleStalkerRequest);
+// Additional Stalker Portal routes
+app.all('/stalker-portal', handleStalkerRequest);
+app.all('/stalker-portal/', handleStalkerRequest);
+app.all('/stalker', handleStalkerRequest);
+app.all('/stalker/', handleStalkerRequest);
 
 // Live stream for MAG devices (before catch-all)
 app.get('/live/:streamName', async (req, res) => {
