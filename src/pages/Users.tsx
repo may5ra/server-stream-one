@@ -345,13 +345,13 @@ const Users = () => {
 
             {/* Edit User Dialog */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-              <DialogContent className="glass">
+              <DialogContent className="glass max-h-[90vh] flex flex-col">
                 <DialogHeader>
                   <DialogTitle>Edit User</DialogTitle>
                   <DialogDescription>Modify user settings and credentials</DialogDescription>
                 </DialogHeader>
                 {editingUser && (
-                  <div className="space-y-4 py-4">
+                  <div className="space-y-4 py-4 overflow-y-auto flex-1 pr-2">
                     <div className="space-y-2">
                       <Label>Username</Label>
                       <Input
