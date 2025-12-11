@@ -52,6 +52,13 @@ import { useSettings } from "@/hooks/useSettings";
 import { formatDistanceToNow } from "date-fns";
 import { hr } from "date-fns/locale";
 
+interface GeoData {
+  country: string;
+  countryCode: string;
+  city: string;
+  isp: string;
+}
+
 interface ActiveConnection {
   userId: string;
   username: string;
@@ -66,6 +73,7 @@ interface ActiveConnection {
   ip?: string;
   duration?: number;
   player?: string;
+  geo?: GeoData;
 }
 
 interface BackendConnection {
@@ -112,8 +120,35 @@ const Connections = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [disconnectUser, setDisconnectUser] = useState<ActiveConnection | null>(null);
+  const [geoCache, setGeoCache] = useState<Record<string, GeoData>>({});
   const { toast } = useToast();
   const { settings } = useSettings();
+
+  // Fetch geolocation for an IP
+  const fetchGeoData = async (ip: string): Promise<GeoData | null> => {
+    if (!ip || ip === '-' || geoCache[ip]) return geoCache[ip] || null;
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('ip-geolocation', {
+        body: { ip }
+      });
+      
+      if (error) throw error;
+      
+      const geoData: GeoData = {
+        country: data.country || 'Unknown',
+        countryCode: data.countryCode || 'XX',
+        city: data.city || 'Unknown',
+        isp: data.isp || 'Unknown'
+      };
+      
+      setGeoCache(prev => ({ ...prev, [ip]: geoData }));
+      return geoData;
+    } catch (e) {
+      console.error('Geo lookup failed for', ip, e);
+      return null;
+    }
+  };
 
   const getDockerUrl = () => {
     const domain = settings?.serverDomain || "";
@@ -159,6 +194,8 @@ const Connections = () => {
         const currentConnections = liveSession?.sessionCount || user.connections || 0;
         const isAtLimit = currentConnections >= (user.max_connections || 1);
 
+        const ip = activeSession?.ip;
+        
         return {
           userId: user.id,
           username: user.username,
@@ -170,12 +207,24 @@ const Connections = () => {
           isExpired,
           isAtLimit: isAtLimit && currentConnections > 0,
           currentStream: activeSession?.streamName,
-          ip: activeSession?.ip,
+          ip,
           duration: activeSession?.startTime ? Date.now() - activeSession.startTime : 0,
+          geo: ip ? geoCache[ip] : undefined,
         };
       });
 
       setConnections(mapped);
+      
+      // Fetch geo data for IPs we don't have cached yet
+      const ipsToLookup = mapped
+        .filter(c => c.ip && !geoCache[c.ip])
+        .map(c => c.ip!)
+        .filter((ip, idx, arr) => arr.indexOf(ip) === idx); // unique
+      
+      // Batch geo lookups (limit to 5 at a time to avoid rate limiting)
+      for (const ip of ipsToLookup.slice(0, 5)) {
+        fetchGeoData(ip);
+      }
     } catch (error: any) {
       toast({
         title: "Greška",
@@ -194,6 +243,16 @@ const Connections = () => {
     const interval = setInterval(fetchConnections, 5000);
     return () => clearInterval(interval);
   }, [settings?.serverDomain]);
+
+  // Update connections with geo data when cache changes
+  useEffect(() => {
+    if (Object.keys(geoCache).length > 0) {
+      setConnections(prev => prev.map(conn => ({
+        ...conn,
+        geo: conn.ip ? geoCache[conn.ip] : undefined
+      })));
+    }
+  }, [geoCache]);
 
   const handleForceDisconnect = async () => {
     if (!disconnectUser) return;
@@ -411,7 +470,8 @@ const Connections = () => {
                       <TableHead className="w-12">Status</TableHead>
                       <TableHead>Korisnik</TableHead>
                       <TableHead>Stream</TableHead>
-                      <TableHead>IP</TableHead>
+                      <TableHead>IP / Lokacija</TableHead>
+                      <TableHead>ISP</TableHead>
                       <TableHead>Duration</TableHead>
                       <TableHead className="text-center">Konekcije</TableHead>
                       <TableHead>Istek</TableHead>
@@ -452,10 +512,35 @@ const Connections = () => {
                         </TableCell>
                         <TableCell>
                           {conn.ip ? (
-                            <div className="flex items-center gap-1 text-sm">
-                              <Globe className="h-3 w-3 text-muted-foreground" />
-                              <span className="font-mono">{conn.ip}</span>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1 text-sm">
+                                {conn.geo?.countryCode && conn.geo.countryCode !== 'XX' ? (
+                                  <img 
+                                    src={`https://flagcdn.com/16x12/${conn.geo.countryCode.toLowerCase()}.png`}
+                                    alt={conn.geo.country}
+                                    className="h-3 w-4"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                  />
+                                ) : (
+                                  <Globe className="h-3 w-3 text-muted-foreground" />
+                                )}
+                                <span className="font-mono text-xs">{conn.ip}</span>
+                              </div>
+                              {conn.geo?.city && conn.geo.city !== 'Unknown' && (
+                                <span className="text-xs text-muted-foreground">
+                                  {conn.geo.city}, {conn.geo.country}
+                                </span>
+                              )}
                             </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {conn.geo?.isp && conn.geo.isp !== 'Unknown' ? (
+                            <span className="text-xs text-muted-foreground truncate max-w-32 block" title={conn.geo.isp}>
+                              {conn.geo.isp.length > 20 ? conn.geo.isp.substring(0, 20) + '...' : conn.geo.isp}
+                            </span>
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}

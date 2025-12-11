@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.stalker-portal]
 verify_jwt = false
+
+[functions.ip-geolocation]
+verify_jwt = false
