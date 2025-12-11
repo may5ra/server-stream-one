@@ -344,7 +344,7 @@ const LoadBalancers = () => {
 
       {/* Install Agent Dialog */}
       <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
-        <DialogContent className="glass max-w-2xl">
+        <DialogContent className="glass max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Terminal className="h-5 w-5 text-primary" />
