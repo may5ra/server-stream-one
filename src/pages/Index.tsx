@@ -1,4 +1,4 @@
-import { Users, Tv, Activity, Server, RefreshCw, Database } from "lucide-react";
+import { Users, Tv, Activity, Server, RefreshCw } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { StatsCard } from "@/components/dashboard/StatsCard";
@@ -11,8 +11,11 @@ import { UserLocationMap } from "@/components/dashboard/UserLocationMap";
 import { ContentStats } from "@/components/dashboard/ContentStats";
 import { ResellerStats } from "@/components/dashboard/ResellerStats";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
 
 const Index = () => {
+  // Enable realtime notifications
+  useRealtimeNotifications();
   const { stats, recentStreams, servers, loading } = useDashboardStats();
 
   if (loading) {
