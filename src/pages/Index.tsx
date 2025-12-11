@@ -1,4 +1,4 @@
-import { Users, Tv, Activity, Server, RefreshCw } from "lucide-react";
+import { Users, Tv, Activity, Server, RefreshCw, Database } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { StatsCard } from "@/components/dashboard/StatsCard";
@@ -8,6 +8,8 @@ import { ServerStatus } from "@/components/dashboard/ServerStatus";
 import { ServerCards } from "@/components/dashboard/ServerCards";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { UserLocationMap } from "@/components/dashboard/UserLocationMap";
+import { ContentStats } from "@/components/dashboard/ContentStats";
+import { ResellerStats } from "@/components/dashboard/ResellerStats";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 
 const Index = () => {
@@ -119,6 +121,12 @@ const Index = () => {
           {/* Server Cards - Full Width */}
           <div className="mt-4 sm:mt-6">
             <ServerCards servers={servers} />
+          </div>
+
+          {/* Content & Reseller Stats Row */}
+          <div className="mt-4 sm:mt-6 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
+            <ContentStats />
+            <ResellerStats />
           </div>
 
           {/* Bottom Grid */}
