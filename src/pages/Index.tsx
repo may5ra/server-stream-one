@@ -5,6 +5,7 @@ import { StatsCard } from "@/components/dashboard/StatsCard";
 import { ActivityChart } from "@/components/dashboard/ActivityChart";
 import { StreamsTable } from "@/components/dashboard/StreamsTable";
 import { ServerStatus } from "@/components/dashboard/ServerStatus";
+import { ServerCards } from "@/components/dashboard/ServerCards";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 
@@ -112,6 +113,11 @@ const Index = () => {
                 activeConnections={stats.activeConnections}
               />
             </div>
+          </div>
+
+          {/* Server Cards - Full Width */}
+          <div className="mt-4 sm:mt-6">
+            <ServerCards servers={servers} />
           </div>
 
           {/* Bottom Grid */}
