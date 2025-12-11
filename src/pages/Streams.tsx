@@ -960,61 +960,128 @@ const Streams = () => {
                 <Tabs defaultValue="basic" className="w-full">
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="basic">Osnovno</TabsTrigger>
-                    <TabsTrigger value="webvtt">WebVTT</TabsTrigger>
+                    <TabsTrigger value="webvtt">WebVTT Titlovi</TabsTrigger>
                     <TabsTrigger value="advanced">Napredno</TabsTrigger>
                   </TabsList>
                   
                   <TabsContent value="basic" className="space-y-4 py-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Naziv</Label>
+                        <Label>Naziv streama</Label>
                         <Input
                           value={editingStream.name}
                           onChange={(e) => setEditingStream({ ...editingStream, name: e.target.value })}
+                          placeholder="npr. Sports HD"
                         />
                       </div>
+                      
                       <div className="space-y-2">
                         <Label>Broj kanala</Label>
                         <Input
                           type="number"
                           value={editingStream.channel_number || ""}
                           onChange={(e) => setEditingStream({ ...editingStream, channel_number: e.target.value ? parseInt(e.target.value) : null })}
+                          placeholder="1"
                         />
                       </div>
                     </div>
+                    
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Kategorija</Label>
                         <Input
                           value={editingStream.category || ""}
                           onChange={(e) => setEditingStream({ ...editingStream, category: e.target.value || null })}
+                          placeholder="Sport, Film, Vijesti..."
                         />
                       </div>
+                      
                       <div className="space-y-2">
                         <Label>Bouquet</Label>
                         <Input
                           value={editingStream.bouquet || ""}
                           onChange={(e) => setEditingStream({ ...editingStream, bouquet: e.target.value || null })}
+                          placeholder="Basic, Premium..."
                         />
                       </div>
                     </div>
+                    
+                    <div className="space-y-2">
+                      <Label>Tip ulaza</Label>
+                      <Select 
+                        value={editingStream.input_type} 
+                        onValueChange={(v) => setEditingStream({ ...editingStream, input_type: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="rtmp">RTMP</SelectItem>
+                          <SelectItem value="rtsp">RTSP</SelectItem>
+                          <SelectItem value="srt">SRT (Secure Reliable Transport)</SelectItem>
+                          <SelectItem value="hls">HLS Pull (.m3u8)</SelectItem>
+                          <SelectItem value="mpd">MPD/DASH (.mpd)</SelectItem>
+                          <SelectItem value="udp">UDP/Multicast</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
                     <div className="space-y-2">
                       <Label>URL izvora</Label>
                       <Input
                         value={editingStream.input_url}
-                        onChange={(e) => setEditingStream({ ...editingStream, input_url: e.target.value })}
+                        onChange={(e) => {
+                          const url = e.target.value;
+                          const autoProxyMode = detectProxyMode(url);
+                          setEditingStream({ 
+                            ...editingStream, 
+                            input_url: url,
+                            proxy_mode: autoProxyMode
+                          });
+                        }}
+                        placeholder="http://source.example.com/stream.m3u8"
                       />
+                      {getDetectedPatternLabel(editingStream.input_url) && (
+                        <p className="text-xs text-warning flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          Detektirano: {getDetectedPatternLabel(editingStream.input_url)} - automatski uključen HLS Proxy
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Stream Ikona (URL)</Label>
+                        <Input
+                          value={editingStream.stream_icon || ""}
+                          onChange={(e) => setEditingStream({ ...editingStream, stream_icon: e.target.value || null })}
+                          placeholder="https://example.com/logo.png"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>EPG Channel ID</Label>
+                        <Input
+                          value={editingStream.epg_channel_id || ""}
+                          onChange={(e) => setEditingStream({ ...editingStream, epg_channel_id: e.target.value || null })}
+                          placeholder="channel.hr"
+                        />
+                      </div>
                     </div>
                   </TabsContent>
                   
                   <TabsContent value="webvtt" className="space-y-4 py-4">
-                    <div className="flex items-center justify-between">
-                      <Label>WebVTT omogućen</Label>
+                    <div className="flex items-center justify-between p-4 rounded-lg bg-accent/10 border border-accent/20">
+                      <div>
+                        <Label className="text-accent">WebVTT Titlovi</Label>
+                        <p className="text-xs text-muted-foreground">Dodaj vanjske titlove na stream</p>
+                      </div>
                       <Switch
-                        checked={editingStream.webvtt_enabled}
+                        checked={editingStream.webvtt_enabled || false}
                         onCheckedChange={(checked) => setEditingStream({ ...editingStream, webvtt_enabled: checked })}
                       />
                     </div>
+                    
                     {editingStream.webvtt_enabled && (
                       <>
                         <div className="space-y-2">
@@ -1022,14 +1089,28 @@ const Streams = () => {
                           <Input
                             value={editingStream.webvtt_url || ""}
                             onChange={(e) => setEditingStream({ ...editingStream, webvtt_url: e.target.value })}
+                            placeholder="http://teletext.example.com/888.vtt"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Jezik</Label>
-                          <Input
-                            value={editingStream.webvtt_language || ""}
-                            onChange={(e) => setEditingStream({ ...editingStream, webvtt_language: e.target.value })}
-                          />
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Jezik (ISO kod)</Label>
+                            <Input
+                              value={editingStream.webvtt_language || ""}
+                              onChange={(e) => setEditingStream({ ...editingStream, webvtt_language: e.target.value })}
+                              placeholder="hr"
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label>Naziv titla</Label>
+                            <Input
+                              value={editingStream.webvtt_label || ""}
+                              onChange={(e) => setEditingStream({ ...editingStream, webvtt_label: e.target.value })}
+                              placeholder="Hrvatski"
+                            />
+                          </div>
                         </div>
                       </>
                     )}
@@ -1054,29 +1135,109 @@ const Streams = () => {
                       </Select>
                     </div>
                     
+                    <div className="space-y-2">
+                      <Label>Load Balancer</Label>
+                      <Select 
+                        value={editingStream.load_balancer_id || "none"} 
+                        onValueChange={(v) => setEditingStream({ ...editingStream, load_balancer_id: v === "none" ? null : v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Odaberi LB" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Bez LB (Direct)</SelectItem>
+                          {loadBalancers.map(lb => (
+                            <SelectItem key={lb.id} value={lb.id}>
+                              {lb.name} ({lb.ip_address})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
                     <div className="grid grid-cols-2 gap-4">
                       <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                        <Label>DVR</Label>
+                        <div>
+                          <Label>DVR Snimanje</Label>
+                          <p className="text-xs text-muted-foreground">Timeshift</p>
+                        </div>
                         <Switch
-                          checked={editingStream.dvr_enabled}
+                          checked={editingStream.dvr_enabled || false}
                           onCheckedChange={(checked) => setEditingStream({ ...editingStream, dvr_enabled: checked })}
                         />
                       </div>
                       <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                        <Label>ABR</Label>
+                        <div>
+                          <Label>ABR</Label>
+                          <p className="text-xs text-muted-foreground">Adaptive Bitrate</p>
+                        </div>
                         <Switch
-                          checked={editingStream.abr_enabled}
+                          checked={editingStream.abr_enabled || false}
                           onCheckedChange={(checked) => setEditingStream({ ...editingStream, abr_enabled: checked })}
                         />
                       </div>
                     </div>
+                    
+                    {editingStream.dvr_enabled && (
+                      <div className="space-y-2">
+                        <Label>DVR Trajanje (sati)</Label>
+                        <Input
+                          type="number"
+                          value={editingStream.dvr_duration || 24}
+                          onChange={(e) => setEditingStream({ ...editingStream, dvr_duration: parseInt(e.target.value) || 24 })}
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Bitrate (kbps)</Label>
+                        <Input
+                          type="number"
+                          value={editingStream.bitrate || 4500}
+                          onChange={(e) => setEditingStream({ ...editingStream, bitrate: parseInt(e.target.value) || 4500 })}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>Rezolucija</Label>
+                        <Select 
+                          value={editingStream.resolution || "1920x1080"} 
+                          onValueChange={(v) => setEditingStream({ ...editingStream, resolution: v })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="3840x2160">4K (3840x2160)</SelectItem>
+                            <SelectItem value="1920x1080">Full HD (1920x1080)</SelectItem>
+                            <SelectItem value="1280x720">HD (1280x720)</SelectItem>
+                            <SelectItem value="854x480">SD (854x480)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    
                     <div className="space-y-2">
-                      <Label>Bitrate (kbps)</Label>
-                      <Input
-                        type="number"
-                        value={editingStream.bitrate}
-                        onChange={(e) => setEditingStream({ ...editingStream, bitrate: parseInt(e.target.value) || 4500 })}
-                      />
+                      <Label>Output Formati</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {["hls", "mpd", "rtmp"].map(format => (
+                          <Badge 
+                            key={format}
+                            variant={editingStream.output_formats?.includes(format) ? "default" : "outline"}
+                            className="cursor-pointer"
+                            onClick={() => {
+                              const current = editingStream.output_formats || [];
+                              const updated = current.includes(format)
+                                ? current.filter(f => f !== format)
+                                : [...current, format];
+                              setEditingStream({ ...editingStream, output_formats: updated });
+                            }}
+                          >
+                            {format.toUpperCase()}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
                   </TabsContent>
                 </Tabs>
