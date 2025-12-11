@@ -141,10 +141,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Stalker Portal routes - handle ALL methods (GET, POST, etc.)
-// These MUST be first, before any other routes!
-app.all('/c', handleStalkerRequest);
-app.all('/c/', handleStalkerRequest);
+// Stalker Portal API section starts below - routes defined after handler function
 
 // ==================== STALKER PORTAL API (MUST BE BEFORE CATCH-ALL ROUTES) ====================
 // Compatible with MAG devices and Stalker middleware
@@ -509,7 +506,9 @@ async function handleStalkerRequest(req, res) {
   }
 }
 
-// Additional Stalker Portal routes
+// Stalker Portal routes - ALL routes MUST be after handleStalkerRequest function!
+app.all('/c', handleStalkerRequest);
+app.all('/c/', handleStalkerRequest);
 app.all('/stalker-portal', handleStalkerRequest);
 app.all('/stalker-portal/', handleStalkerRequest);
 app.all('/stalker', handleStalkerRequest);
