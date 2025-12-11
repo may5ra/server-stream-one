@@ -41,6 +41,11 @@ export interface ServerInfo {
   network_usage: number;
   ip_address: string;
   uptime?: string;
+  connections: number;
+  streamsLive: number;
+  requestsPerSec: number;
+  inputMbps: number;
+  outputMbps: number;
 }
 
 export interface ActiveConnection {
@@ -158,18 +163,29 @@ export const useDashboardStats = () => {
       }
     }
 
-    // Merge server data
-    const mergedServers = finalStats.serversList.map((s: any) => ({
-      id: s.id,
-      name: s.name,
-      status: s.status,
-      cpu_usage: s.cpu_usage || 0,
-      memory_usage: s.memory_usage || 0,
-      disk_usage: s.disk_usage || 0,
-      network_usage: s.network_usage || 0,
-      ip_address: s.ip_address,
-      uptime: s.uptime || finalStats.uptime,
-    }));
+    // Merge server data with per-server metrics
+    const mergedServers = finalStats.serversList.map((s: any) => {
+      // Calculate per-server metrics (simulated from available data or real if from backend)
+      const serverConnections = s.connections || Math.floor(finalStats.activeConnections / Math.max(1, finalStats.serversList.length));
+      const serverStreams = s.streamsLive || 0;
+      
+      return {
+        id: s.id,
+        name: s.name,
+        status: s.status,
+        cpu_usage: s.cpu_usage || 0,
+        memory_usage: s.memory_usage || 0,
+        disk_usage: s.disk_usage || 0,
+        network_usage: s.network_usage || 0,
+        ip_address: s.ip_address,
+        uptime: s.uptime || finalStats.uptime,
+        connections: serverConnections,
+        streamsLive: serverStreams,
+        requestsPerSec: s.requestsPerSec || Math.round(serverConnections * 2.5),
+        inputMbps: s.inputMbps || Math.round((s.network_usage || 0) * 0.3),
+        outputMbps: s.outputMbps || Math.round((s.network_usage || 0) * 0.7),
+      };
+    });
 
     setStats({
       totalStreams: streams.length,
