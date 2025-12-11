@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -143,7 +144,14 @@ const Streams = () => {
   const { loadBalancers } = useLoadBalancers();
   const [syncing, setSyncing] = useState(false);
   const [deployingLB, setDeployingLB] = useState<string | null>(null);
+  const [deleteConfirmStream, setDeleteConfirmStream] = useState<Stream | null>(null);
   const { toast } = useToast();
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmStream) return;
+    await deleteStream(deleteConfirmStream.id);
+    setDeleteConfirmStream(null);
+  };
 
   const handleSyncAll = async () => {
     setSyncing(true);
@@ -931,7 +939,7 @@ const Streams = () => {
                       variant="ghost" 
                       size="sm" 
                       className="text-destructive"
-                      onClick={() => deleteStream(stream.id)}
+                      onClick={() => setDeleteConfirmStream(stream)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -1285,6 +1293,25 @@ const Streams = () => {
             webvttLabel={testingStream?.webvtt_label}
             webvttLanguage={testingStream?.webvtt_language}
           />
+
+          {/* Delete Confirmation Dialog */}
+          <AlertDialog open={!!deleteConfirmStream} onOpenChange={(open) => !open && setDeleteConfirmStream(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Izbrisati stream?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Jesi li siguran da želiš izbrisati stream <strong>"{deleteConfirmStream?.name}"</strong>? 
+                  Ova akcija se ne može poništiti.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Odustani</AlertDialogCancel>
+                <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  Izbriši
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </main>
       </div>
     </div>
