@@ -1068,6 +1068,31 @@ const Streams = () => {
                         />
                       </div>
                     </div>
+                    
+                    <div className="space-y-2">
+                      <Label>Izlazni formati</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {["hls", "dash", "rtmp", "srt"].map(format => (
+                          <Button
+                            key={format}
+                            type="button"
+                            variant={editingStream.output_formats?.includes(format) ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => {
+                              const formats = editingStream.output_formats || [];
+                              setEditingStream({
+                                ...editingStream,
+                                output_formats: formats.includes(format)
+                                  ? formats.filter(f => f !== format)
+                                  : [...formats, format]
+                              });
+                            }}
+                          >
+                            {format.toUpperCase()}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                   </TabsContent>
                   
                   <TabsContent value="webvtt" className="space-y-4 py-4">
