@@ -88,6 +88,34 @@ const syncAllStreamsToBackend = async (streams: Stream[]) => {
   }
 };
 
+// Auto-deploy LB config when stream is assigned/removed from LB
+const deployLoadBalancerConfig = async (loadBalancerId: string) => {
+  if (!loadBalancerId) return;
+  
+  try {
+    console.log(`[LB Deploy] Auto-deploying config for LB: ${loadBalancerId}`);
+    const { data, error } = await supabase.functions.invoke('lb-deploy', {
+      body: { action: 'deploy', loadBalancerId }
+    });
+    
+    if (error) {
+      console.error('[LB Deploy] Error:', error);
+      return false;
+    }
+    
+    if (data?.success) {
+      console.log(`[LB Deploy] Success: ${data.message}`);
+      return true;
+    } else {
+      console.error('[LB Deploy] Failed:', data?.message);
+      return false;
+    }
+  } catch (err) {
+    console.error('[LB Deploy] Exception:', err);
+    return false;
+  }
+};
+
 export const useStreams = () => {
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,6 +184,11 @@ export const useStreams = () => {
   };
 
   const updateStream = async (id: string, updates: Partial<Stream>) => {
+    // Get old stream to check if LB changed
+    const oldStream = streams.find(s => s.id === id);
+    const oldLbId = oldStream?.load_balancer_id;
+    const newLbId = updates.load_balancer_id;
+    
     const { data, error } = await supabase
       .from("streams")
       .update(updates)
@@ -171,12 +204,31 @@ export const useStreams = () => {
     // Sync to Docker backend
     syncStreamToBackend(data as Stream);
 
+    // Auto-deploy LB config if load_balancer_id changed
+    if (newLbId !== undefined && newLbId !== oldLbId) {
+      // Deploy to new LB
+      if (newLbId) {
+        const deployed = await deployLoadBalancerConfig(newLbId);
+        if (deployed) {
+          toast({ title: "LB Deployed", description: "Load Balancer config automatski ažuriran" });
+        }
+      }
+      // Deploy to old LB (to remove stream from it)
+      if (oldLbId) {
+        await deployLoadBalancerConfig(oldLbId);
+      }
+    }
+
     setStreams((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
     toast({ title: "Ažurirano", description: "Stream ažuriran i sinkroniziran" });
     return true;
   };
 
   const deleteStream = async (id: string) => {
+    // Get stream to check if it has LB assigned
+    const stream = streams.find(s => s.id === id);
+    const lbId = stream?.load_balancer_id;
+    
     const { error } = await supabase.from("streams").delete().eq("id", id);
 
     if (error) {
@@ -186,6 +238,11 @@ export const useStreams = () => {
 
     // Delete from Docker backend
     deleteStreamFromBackend(id);
+
+    // Auto-deploy LB config to remove stream from it
+    if (lbId) {
+      await deployLoadBalancerConfig(lbId);
+    }
 
     setStreams((prev) => prev.filter((s) => s.id !== id));
     toast({ title: "Obrisano", description: "Stream uklonjen" });
