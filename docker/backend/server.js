@@ -1634,9 +1634,13 @@ app.get('/proxy/*', async (req, res) => {
       }
       
       // Update session tracking (sync - fast)
+      const existingSession = userSessions.get(sessionId);
       userSessions.set(sessionId, {
         streamName,
-        lastSeen: Date.now()
+        lastSeen: Date.now(),
+        startTime: existingSession?.startTime || Date.now(),
+        ip: req.ip || req.connection.remoteAddress,
+        username
       });
       
       // ASYNC: Update database without blocking response
@@ -2402,30 +2406,146 @@ app.get('/api/activity-logs', async (req, res) => {
 });
 
 // ==================== STATS API ====================
+// Server start time for uptime calculation
+const serverStartTime = Date.now();
+
+// Calculate real-time connections from activeConnections map
+function getRealTimeStats() {
+  let totalConnections = 0;
+  let onlineUsers = 0;
+  const connectionDetails = [];
+  
+  for (const [userId, sessions] of activeConnections.entries()) {
+    if (sessions.size > 0) {
+      onlineUsers++;
+      totalConnections += sessions.size;
+      
+      for (const [sessionId, data] of sessions.entries()) {
+        connectionDetails.push({
+          userId,
+          sessionId,
+          streamName: data.streamName,
+          lastSeen: new Date(data.lastSeen).toISOString(),
+          duration: Date.now() - (data.startTime || data.lastSeen)
+        });
+      }
+    }
+  }
+  
+  return { totalConnections, onlineUsers, connectionDetails };
+}
+
+// Format uptime as human readable
+function formatUptime(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 app.get('/api/stats', async (req, res) => {
   try {
-    const [usersResult, streamsResult, serversResult] = await Promise.all([
-      pool.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as online, SUM(connections) as active_connections FROM streaming_users', ['online']),
-      pool.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as active FROM streams', ['live']),
-      pool.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as online FROM servers', ['online'])
+    // Get real-time connection stats from memory
+    const realTimeStats = getRealTimeStats();
+    
+    const [usersResult, streamsResult, serversResult, lbResult] = await Promise.all([
+      pool.query('SELECT COUNT(*) as total FROM streaming_users'),
+      pool.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as active, SUM(viewers) as viewers FROM streams', ['live']),
+      pool.query('SELECT * FROM servers ORDER BY created_at DESC'),
+      pool.query('SELECT * FROM load_balancers WHERE status = $1', ['active'])
     ]);
+    
+    // Calculate server uptime
+    const uptimeMs = Date.now() - serverStartTime;
+    const uptime = formatUptime(uptimeMs);
+    
+    // Get OS-level stats if available (for single-server setup)
+    let systemStats = {
+      cpu: 0,
+      memory: 0,
+      disk: 0,
+      network: 0
+    };
+    
+    try {
+      const os = require('os');
+      const cpus = os.cpus();
+      const totalMem = os.totalmem();
+      const freeMem = os.freemem();
+      
+      // Calculate CPU usage
+      let totalIdle = 0, totalTick = 0;
+      for (const cpu of cpus) {
+        for (const type in cpu.times) {
+          totalTick += cpu.times[type];
+        }
+        totalIdle += cpu.times.idle;
+      }
+      systemStats.cpu = Math.round(100 - (totalIdle / totalTick * 100));
+      systemStats.memory = Math.round((1 - freeMem / totalMem) * 100);
+      
+      // Network - approximate from active connections
+      systemStats.network = Math.min(100, realTimeStats.totalConnections * 2);
+    } catch (e) {
+      // OS stats not available
+    }
+    
+    // Merge server data with system stats
+    const servers = serversResult.rows.map(s => ({
+      ...s,
+      uptime: uptime,
+      cpu_usage: systemStats.cpu || s.cpu_usage || 0,
+      memory_usage: systemStats.memory || s.memory_usage || 0,
+      network_usage: systemStats.network || s.network_usage || 0
+    }));
+    
+    // Calculate LB stats
+    const loadBalancers = lbResult.rows.map(lb => ({
+      id: lb.id,
+      name: lb.name,
+      status: lb.status,
+      currentStreams: lb.current_streams || 0,
+      maxStreams: lb.max_streams || 500,
+      ipAddress: lb.ip_address
+    }));
     
     res.json({
       users: {
         total: parseInt(usersResult.rows[0].total) || 0,
-        online: parseInt(usersResult.rows[0].online) || 0,
-        activeConnections: parseInt(usersResult.rows[0].active_connections) || 0
+        online: realTimeStats.onlineUsers,
+        activeConnections: realTimeStats.totalConnections
       },
       streams: {
         total: parseInt(streamsResult.rows[0].total) || 0,
-        active: parseInt(streamsResult.rows[0].active) || 0
+        active: parseInt(streamsResult.rows[0].active) || 0,
+        viewers: parseInt(streamsResult.rows[0].viewers) || realTimeStats.totalConnections
       },
       servers: {
-        total: parseInt(serversResult.rows[0].total) || 0,
-        online: parseInt(serversResult.rows[0].online) || 0
-      }
+        total: servers.length,
+        online: servers.filter(s => s.status === 'online').length,
+        list: servers
+      },
+      loadBalancers: {
+        total: loadBalancers.length,
+        active: loadBalancers.filter(lb => lb.status === 'active').length,
+        list: loadBalancers
+      },
+      system: {
+        uptime,
+        uptimeMs,
+        cpu: systemStats.cpu,
+        memory: systemStats.memory,
+        disk: systemStats.disk,
+        network: systemStats.network
+      },
+      connections: realTimeStats.connectionDetails.slice(0, 100) // Limit to 100 for performance
     });
   } catch (error) {
+    console.error('[Stats] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
