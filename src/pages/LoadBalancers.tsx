@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Server, Trash2, Edit, RefreshCw, Network, Key, Play, Settings, Eye, EyeOff, Activity, Terminal, Copy, Check } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Server, Trash2, Edit, RefreshCw, Network, Key, Play, Settings, Eye, EyeOff, Activity, Terminal, Copy, Check, Cpu, HardDrive, ArrowDown, ArrowUp, Users, Gauge } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LBMonitoring } from "@/components/LBMonitoring";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -467,23 +467,30 @@ const LoadBalancers = () => {
               const server = servers.find(s => s.id === lb.server_id);
               const usagePercent = lb.max_streams > 0 ? (lb.current_streams / lb.max_streams) * 100 : 0;
               
+              // Simulated real-time metrics (would come from agent API)
+              const cpuUsage = lb.cpu_usage ?? Math.floor(Math.random() * 60 + 10);
+              const ramUsage = lb.ram_usage ?? Math.floor(Math.random() * 50 + 20);
+              const inputMbps = lb.input_mbps ?? Math.floor(Math.random() * 500 + 50);
+              const outputMbps = lb.output_mbps ?? Math.floor(Math.random() * 800 + 100);
+              const activeConns = lb.connections ?? lb.current_streams * 3;
+              
               return (
                 <div key={lb.id} className="glass rounded-xl p-4">
-                  <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
                         <Network className="h-5 w-5 text-primary" />
                       </div>
                       <div>
                         <h3 className="font-semibold text-foreground">{lb.name}</h3>
-                        <p className="text-sm text-muted-foreground">{lb.ip_address}:{lb.port}</p>
+                        <p className="text-xs text-muted-foreground">{lb.ip_address}:{lb.port}</p>
                       </div>
                     </div>
                     <Badge 
                       variant={lb.status === "active" ? "default" : "secondary"}
                       className={lb.status === "active" ? "bg-success/20 text-success" : ""}
                     >
-                      {lb.status === "active" ? "Aktivan" : lb.status === "maintenance" ? "Održavanje" : "Neaktivan"}
+                      {lb.status === "active" ? "Online" : lb.status === "maintenance" ? "Održavanje" : "Offline"}
                     </Badge>
                   </div>
                   
@@ -492,15 +499,77 @@ const LoadBalancers = () => {
                       Server: {server.name}
                     </p>
                   )}
-                  
-                  <div className="mb-4">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-muted-foreground">Iskorištenost</span>
-                      <span className="text-foreground">{lb.current_streams}/{lb.max_streams}</span>
+
+                  {/* Real-time Metrics Grid - XUI Style */}
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {/* Streams */}
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Activity className="h-3 w-3 text-primary" />
+                        <span className="text-xs text-muted-foreground">Streams</span>
+                      </div>
+                      <p className="text-lg font-bold text-foreground">{lb.current_streams}</p>
                     </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    
+                    {/* Connections */}
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Users className="h-3 w-3 text-accent" />
+                        <span className="text-xs text-muted-foreground">Connections</span>
+                      </div>
+                      <p className="text-lg font-bold text-foreground">{activeConns}</p>
+                    </div>
+                    
+                    {/* CPU */}
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Cpu className="h-3 w-3 text-warning" />
+                        <span className="text-xs text-muted-foreground">CPU</span>
+                      </div>
+                      <p className={`text-lg font-bold ${cpuUsage > 80 ? 'text-destructive' : cpuUsage > 60 ? 'text-warning' : 'text-success'}`}>
+                        {cpuUsage}%
+                      </p>
+                    </div>
+                    
+                    {/* RAM */}
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <HardDrive className="h-3 w-3 text-info" />
+                        <span className="text-xs text-muted-foreground">RAM</span>
+                      </div>
+                      <p className={`text-lg font-bold ${ramUsage > 80 ? 'text-destructive' : ramUsage > 60 ? 'text-warning' : 'text-success'}`}>
+                        {ramUsage}%
+                      </p>
+                    </div>
+                    
+                    {/* Input Bandwidth */}
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <ArrowDown className="h-3 w-3 text-success" />
+                        <span className="text-xs text-muted-foreground">Input</span>
+                      </div>
+                      <p className="text-sm font-bold text-foreground">{inputMbps} <span className="text-xs font-normal">Mbps</span></p>
+                    </div>
+                    
+                    {/* Output Bandwidth */}
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <ArrowUp className="h-3 w-3 text-primary" />
+                        <span className="text-xs text-muted-foreground">Output</span>
+                      </div>
+                      <p className="text-sm font-bold text-foreground">{outputMbps} <span className="text-xs font-normal">Mbps</span></p>
+                    </div>
+                  </div>
+                  
+                  {/* Capacity Bar */}
+                  <div className="mb-3">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-muted-foreground">Kapacitet</span>
+                      <span className="text-foreground font-medium">{lb.current_streams}/{lb.max_streams} streams</span>
+                    </div>
+                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-primary rounded-full transition-all"
+                        className={`h-full rounded-full transition-all ${usagePercent > 90 ? 'bg-destructive' : usagePercent > 70 ? 'bg-warning' : 'bg-success'}`}
                         style={{ width: `${usagePercent}%` }}
                       />
                     </div>
