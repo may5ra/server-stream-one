@@ -140,10 +140,14 @@ serve(async (req) => {
     const nginxConfig = generateNginxConfig(streams || [], lb.nginx_port || 8080);
     console.log(`Generated config for ${streams?.length || 0} streams`);
 
+    // Agent always runs on port 3002
+    const AGENT_PORT = '3002';
+    const AGENT_SECRET = 'superbase123';
+
     if (action === 'test') {
-      // Test SSH connection
-      const agentUrl = `http://${lb.ip_address}:${Deno.env.get('AGENT_PORT') || '3002'}/health`;
-      
+      // Test agent connection
+      const agentUrl = `http://${lb.ip_address}:${AGENT_PORT}/health`;
+      console.log(`Testing agent at ${agentUrl}`);
       try {
         const testResponse = await fetch(agentUrl, {
           method: 'GET',
@@ -177,15 +181,13 @@ serve(async (req) => {
     }
 
     if (action === 'deploy') {
-      // Try to deploy via agent first - agent uses root path with action in body
-      const agentPort = Deno.env.get('AGENT_PORT') || '3002';
-      const agentUrl = `http://${lb.ip_address}:${agentPort}`;
-      const agentSecret = Deno.env.get('AGENT_SECRET') || 'superbase123';
+      // Try to deploy via agent - agent runs on port 3002
+      const agentUrl = `http://${lb.ip_address}:${AGENT_PORT}`;
       
       let deploySuccess = false;
       let deployMessage = '';
 
-      console.log(`Attempting deploy to agent at ${agentUrl} with secret`);
+      console.log(`Attempting deploy to agent at ${agentUrl}`);
 
       try {
         // Step 1: Write config file
@@ -193,7 +195,7 @@ serve(async (req) => {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'X-Agent-Secret': agentSecret
+            'X-Agent-Secret': AGENT_SECRET
           },
           body: JSON.stringify({
             action: 'execute',
@@ -214,7 +216,7 @@ NGINXEOF`
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
-              'X-Agent-Secret': agentSecret
+              'X-Agent-Secret': AGENT_SECRET
             },
             body: JSON.stringify({
               action: 'execute',
