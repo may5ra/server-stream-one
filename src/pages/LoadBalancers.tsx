@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Server, Trash2, Edit, RefreshCw, Network, Key, Play, Settings, Eye, EyeOff, Activity } from "lucide-react";
+import { Plus, Server, Trash2, Edit, RefreshCw, Network, Key, Play, Settings, Eye, EyeOff, Activity, Terminal, Copy, Check } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LBMonitoring } from "@/components/LBMonitoring";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -24,6 +24,8 @@ const LoadBalancers = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [deploying, setDeploying] = useState<string | null>(null);
   const [deployResult, setDeployResult] = useState<any>(null);
+  const [installDialogOpen, setInstallDialogOpen] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
   
   const [newLB, setNewLB] = useState({
     name: "",
@@ -36,6 +38,12 @@ const LoadBalancers = () => {
     ssh_password: "",
     nginx_port: 8080,
   });
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCommand(id);
+    setTimeout(() => setCopiedCommand(null), 2000);
+  };
 
   const handleAdd = async () => {
     if (!newLB.name || !newLB.ip_address) return;
@@ -132,13 +140,18 @@ const LoadBalancers = () => {
               <p className="text-muted-foreground">Upravljanje serverima za distribuciju streamova</p>
             </div>
             
-            <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-              <DialogTrigger asChild>
-                <Button variant="glow">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Dodaj Load Balancer
-                </Button>
-              </DialogTrigger>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setInstallDialogOpen(true)}>
+                <Terminal className="h-4 w-4 mr-2" />
+                Install Agent
+              </Button>
+              <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="glow">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Dodaj Load Balancer
+                  </Button>
+                </DialogTrigger>
               <DialogContent className="glass">
                 <DialogHeader>
                   <DialogTitle>Novi Load Balancer</DialogTitle>
@@ -275,7 +288,107 @@ const LoadBalancers = () => {
                 </Button>
               </DialogContent>
             </Dialog>
+            </div>
           </div>
+
+      {/* Install Agent Dialog */}
+      <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
+        <DialogContent className="glass max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Terminal className="h-5 w-5 text-primary" />
+              Instalacija StreamPanel Agenta
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="bg-muted/50 rounded-lg p-4 border border-border">
+              <h4 className="font-medium mb-2 text-foreground">1. Pokreni instalaciju na LB serveru</h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                SSH-aj se na svoj Load Balancer server i pokreni sljedeću komandu:
+              </p>
+              <div className="relative">
+                <pre className="bg-background rounded-lg p-3 text-sm overflow-x-auto border border-border">
+                  <code className="text-primary">curl -sSL "{window.location.origin}/install-agent.sh?v=$(date +%s)" | sudo bash -s -- --secret=TVOJ_TAJNI_KLJUC</code>
+                </pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2"
+                  onClick={() => copyToClipboard(`curl -sSL "${window.location.origin}/install-agent.sh?v=$(date +%s)" | sudo bash -s -- --secret=TVOJ_TAJNI_KLJUC`, 'install')}
+                >
+                  {copiedCommand === 'install' ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                💡 Zamijeni <code className="bg-muted px-1 rounded">TVOJ_TAJNI_KLJUC</code> sa sigurnom lozinkom
+              </p>
+            </div>
+
+            <div className="bg-muted/50 rounded-lg p-4 border border-border">
+              <h4 className="font-medium mb-2 text-foreground">2. Otvori port u firewallu</h4>
+              <div className="relative">
+                <pre className="bg-background rounded-lg p-3 text-sm overflow-x-auto border border-border">
+                  <code className="text-primary">sudo ufw allow 3002/tcp</code>
+                </pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2"
+                  onClick={() => copyToClipboard('sudo ufw allow 3002/tcp', 'firewall')}
+                >
+                  {copiedCommand === 'firewall' ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <div className="bg-muted/50 rounded-lg p-4 border border-border">
+              <h4 className="font-medium mb-2 text-foreground">3. Testiraj konekciju</h4>
+              <div className="relative">
+                <pre className="bg-background rounded-lg p-3 text-sm overflow-x-auto border border-border">
+                  <code className="text-primary">curl http://IP_ADRESA:3002/health</code>
+                </pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2"
+                  onClick={() => copyToClipboard('curl http://IP_ADRESA:3002/health', 'test')}
+                >
+                  {copiedCommand === 'test' ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <div className="bg-primary/10 rounded-lg p-4 border border-primary/20">
+              <h4 className="font-medium mb-2 text-primary">Važne napomene</h4>
+              <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Agent koristi port <strong>3002</strong> po defaultu</li>
+                <li>Nginx konfiguracija će se automatski deployati</li>
+                <li>Agent podržava health check, deploy i test endpointe</li>
+                <li>Lozinka iz <code className="bg-muted px-1 rounded">--secret</code> koristi se za autentifikaciju</li>
+              </ul>
+            </div>
+
+            <div className="bg-muted/50 rounded-lg p-4 border border-border">
+              <h4 className="font-medium mb-2 text-foreground">Korisne komande</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between items-center">
+                  <code className="text-muted-foreground">Status agenta:</code>
+                  <code className="text-primary">systemctl status streampanel-agent</code>
+                </div>
+                <div className="flex justify-between items-center">
+                  <code className="text-muted-foreground">Logovi:</code>
+                  <code className="text-primary">tail -f /var/log/streampanel-agent.log</code>
+                </div>
+                <div className="flex justify-between items-center">
+                  <code className="text-muted-foreground">Restart:</code>
+                  <code className="text-primary">systemctl restart streampanel-agent</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
           <Tabs defaultValue="overview" className="space-y-6">
             <TabsList className="glass">
