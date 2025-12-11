@@ -1,270 +1,59 @@
-import { useEffect, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Users, MapPin, AlertCircle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Globe, Users, MapPin } from "lucide-react";
 
-interface UserLocation {
-  ip: string;
-  lat: number;
-  lng: number;
-  country: string;
-  countryCode: string;
-  city: string;
-  username: string;
-  streamName?: string;
-}
+// Demo location data - in production this would come from your database
+const demoLocations = [
+  { country: 'Serbia', code: 'RS', users: 1247, percentage: 35 },
+  { country: 'Croatia', code: 'HR', users: 892, percentage: 25 },
+  { country: 'Germany', code: 'DE', users: 634, percentage: 18 },
+  { country: 'Slovenia', code: 'SI', users: 445, percentage: 12 },
+  { country: 'Bosnia', code: 'BA', users: 356, percentage: 10 },
+];
 
 export const UserLocationMap = () => {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const [locations, setLocations] = useState<UserLocation[]>([]);
-  const [mapboxToken, setMapboxToken] = useState<string>('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>('');
-
-  // Fetch Mapbox token from edge function
-  useEffect(() => {
-    const fetchToken = async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke('get-mapbox-token');
-        if (error) throw error;
-        if (data?.token) {
-          // Validate token format (should start with pk.)
-          if (data.token.startsWith('pk.')) {
-            setMapboxToken(data.token);
-          } else {
-            setError('Neispravan Mapbox token format');
-          }
-        } else {
-          setError('Token nije pronađen');
-        }
-      } catch (e) {
-        console.error('Could not fetch Mapbox token:', e);
-        setError('Greška pri dohvaćanju tokena');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchToken();
-  }, []);
-
-  // Simulated user locations for demo
-  useEffect(() => {
-    // In production, this would fetch real data from connections
-    const demoLocations: UserLocation[] = [
-      { ip: '185.60.12.45', lat: 44.8, lng: 20.5, country: 'Serbia', countryCode: 'RS', city: 'Belgrade', username: 'user1' },
-      { ip: '89.142.33.12', lat: 45.8, lng: 15.98, country: 'Croatia', countryCode: 'HR', city: 'Zagreb', username: 'user2' },
-      { ip: '78.24.15.87', lat: 43.85, lng: 18.35, country: 'Bosnia', countryCode: 'BA', city: 'Sarajevo', username: 'user3' },
-      { ip: '91.185.12.65', lat: 46.05, lng: 14.5, country: 'Slovenia', countryCode: 'SI', city: 'Ljubljana', username: 'user4' },
-      { ip: '195.178.45.21', lat: 42.0, lng: 21.4, country: 'North Macedonia', countryCode: 'MK', city: 'Skopje', username: 'user5' },
-      { ip: '52.14.78.123', lat: 40.71, lng: -74.0, country: 'United States', countryCode: 'US', city: 'New York', username: 'user6' },
-      { ip: '87.65.32.11', lat: 52.52, lng: 13.4, country: 'Germany', countryCode: 'DE', city: 'Berlin', username: 'user7' },
-    ];
-    setLocations(demoLocations);
-  }, []);
-
-  // Initialize map
-  useEffect(() => {
-    if (!mapContainer.current || !mapboxToken || map.current) return;
-
-    try {
-      mapboxgl.accessToken = mapboxToken;
-      
-      map.current = new mapboxgl.Map({
-        container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        projection: 'globe',
-        zoom: 3,
-        center: [15, 45],
-        pitch: 20,
-      });
-
-      map.current.addControl(
-        new mapboxgl.NavigationControl({
-          visualizePitch: true,
-        }),
-        'top-right'
-      );
-
-      map.current.scrollZoom.disable();
-
-      map.current.on('style.load', () => {
-        map.current?.setFog({
-          color: 'rgb(20, 20, 30)',
-          'high-color': 'rgb(40, 40, 60)',
-          'horizon-blend': 0.1,
-        });
-      });
-
-      map.current.on('error', (e) => {
-        console.error('Mapbox error:', e);
-        setError('Greška pri učitavanju mape');
-      });
-    } catch (e) {
-      console.error('Map init error:', e);
-      setError('Greška pri inicijalizaciji mape');
-    }
-
-    return () => {
-      map.current?.remove();
-      map.current = null;
-    };
-  }, [mapboxToken]);
-
-  // Add markers for user locations
-  useEffect(() => {
-    if (!map.current || locations.length === 0) return;
-
-    // Wait for map to load
-    const addMarkers = () => {
-      locations.forEach((loc) => {
-        const el = document.createElement('div');
-        el.className = 'user-marker';
-        el.style.cssText = `
-          width: 12px;
-          height: 12px;
-          background: hsl(var(--primary));
-          border: 2px solid white;
-          border-radius: 50%;
-          cursor: pointer;
-          box-shadow: 0 0 10px hsl(var(--primary));
-          animation: pulse 2s infinite;
-        `;
-
-        const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-          <div style="padding: 8px; font-family: system-ui;">
-            <strong>${loc.username}</strong><br/>
-            <span style="font-size: 12px; color: #888;">
-              ${loc.city}, ${loc.country}<br/>
-              IP: ${loc.ip}
-            </span>
-          </div>
-        `);
-
-        new mapboxgl.Marker(el)
-          .setLngLat([loc.lng, loc.lat])
-          .setPopup(popup)
-          .addTo(map.current!);
-      });
-    };
-
-    if (map.current.loaded()) {
-      addMarkers();
-    } else {
-      map.current.on('load', addMarkers);
-    }
-  }, [locations, mapboxToken]);
-
-  // Count by country
-  const countryStats = locations.reduce((acc, loc) => {
-    acc[loc.country] = (acc[loc.country] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  // Show error or loading state
-  if (loading) {
-    return (
-      <Card className="glass">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5 text-primary" />
-            Mapa Korisnika
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-            <div className="h-8 w-8 mb-2 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm">Učitavanje mape...</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!mapboxToken || error) {
-    return (
-      <Card className="glass">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5 text-primary" />
-            Mapa Korisnika
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-            <AlertCircle className="h-8 w-8 mb-2 text-warning" />
-            <p className="text-sm font-medium">{error || 'Mapbox token nije konfiguriran'}</p>
-            <p className="text-xs mt-1 text-center px-4">
-              Dodajte ispravan MAPBOX_PUBLIC_TOKEN u Secrets
-              <br />
-              <span className="text-muted-foreground/70">Token mora početi s "pk."</span>
-            </p>
-          </div>
-          
-          {/* Still show country stats */}
-          <div className="mt-4 p-3 border-t border-border bg-muted/20 rounded-b-lg">
-            <p className="text-xs text-muted-foreground mb-2">Demo lokacije ({locations.length} korisnika):</p>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(countryStats)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5)
-                .map(([country, count]) => (
-                  <Badge key={country} variant="secondary" className="text-xs">
-                    {country}: {count}
-                  </Badge>
-                ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const totalUsers = demoLocations.reduce((sum, loc) => sum + loc.users, 0);
 
   return (
-    <Card className="glass overflow-hidden">
-      <CardHeader className="pb-2">
+    <Card className="glass h-full">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="text-lg flex items-center gap-2">
             <Globe className="h-5 w-5 text-primary" />
-            Live Korisnici
+            Lokacije Korisnika
           </CardTitle>
-          <Badge variant="outline" className="gap-1">
+          <Badge variant="secondary" className="flex items-center gap-1">
             <Users className="h-3 w-3" />
-            {locations.length} online
+            {totalUsers.toLocaleString()}
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="p-0">
-        <div 
-          ref={mapContainer} 
-          className="h-64 w-full"
-          style={{ minHeight: '250px' }}
-        />
-        
-        {/* Country stats */}
-        <div className="p-3 border-t border-border bg-muted/20">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(countryStats)
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 5)
-              .map(([country, count]) => (
-                <Badge key={country} variant="secondary" className="text-xs">
-                  {country}: {count}
-                </Badge>
-              ))}
+      <CardContent className="space-y-3">
+        {demoLocations.map((location, index) => (
+          <div key={location.code} className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold">
+              {index + 1}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-medium text-sm flex items-center gap-1.5">
+                  <MapPin className="h-3 w-3 text-muted-foreground" />
+                  {location.country}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {location.users.toLocaleString()}
+                </span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${location.percentage}%` }}
+                />
+              </div>
+            </div>
           </div>
-        </div>
+        ))}
       </CardContent>
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.3); opacity: 0.7; }
-        }
-      `}</style>
     </Card>
   );
 };
