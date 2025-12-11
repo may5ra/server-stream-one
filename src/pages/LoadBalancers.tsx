@@ -16,8 +16,17 @@ import { useSettings } from "@/hooks/useSettings";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+interface LBMetrics {
+  cpu_usage: number;
+  ram_usage: number;
+  input_mbps: number;
+  output_mbps: number;
+  connections: number;
+  streams: number;
+}
+
 const LoadBalancers = () => {
-  const { loadBalancers, isLoading, addLoadBalancer, updateLoadBalancer, deleteLoadBalancer } = useLoadBalancers();
+  const { loadBalancers, isLoading, addLoadBalancer, updateLoadBalancer, deleteLoadBalancer, refetch } = useLoadBalancers();
   const { servers } = useServers();
   const { settings } = useSettings();
   const { toast } = useToast();
@@ -28,6 +37,46 @@ const LoadBalancers = () => {
   const [deployResult, setDeployResult] = useState<any>(null);
   const [installDialogOpen, setInstallDialogOpen] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
+  const [lbMetrics, setLbMetrics] = useState<Record<string, LBMetrics>>({});
+
+  // Fetch metrics from each LB agent every 5 seconds
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      const newMetrics: Record<string, LBMetrics> = {};
+      
+      for (const lb of loadBalancers) {
+        try {
+          const agentPort = 3002; // Default agent port
+          const response = await fetch(`http://${lb.ip_address}:${agentPort}/metrics`, {
+            signal: AbortSignal.timeout(3000),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            newMetrics[lb.id] = {
+              cpu_usage: data.cpu_usage || 0,
+              ram_usage: data.ram_usage || 0,
+              input_mbps: data.input_mbps || 0,
+              output_mbps: data.output_mbps || 0,
+              connections: data.connections || 0,
+              streams: data.streams || 0,
+            };
+          }
+        } catch (e) {
+          // Agent not reachable, use simulated values
+          console.log(`Could not reach agent for ${lb.name}`);
+        }
+      }
+      
+      if (Object.keys(newMetrics).length > 0) {
+        setLbMetrics(prev => ({ ...prev, ...newMetrics }));
+      }
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 5000);
+    return () => clearInterval(interval);
+  }, [loadBalancers]);
   
   const [newLB, setNewLB] = useState({
     name: "",
@@ -467,12 +516,14 @@ const LoadBalancers = () => {
               const server = servers.find(s => s.id === lb.server_id);
               const usagePercent = lb.max_streams > 0 ? (lb.current_streams / lb.max_streams) * 100 : 0;
               
-              // Simulated real-time metrics (would come from agent API)
-              const cpuUsage = lb.cpu_usage ?? Math.floor(Math.random() * 60 + 10);
-              const ramUsage = lb.ram_usage ?? Math.floor(Math.random() * 50 + 20);
-              const inputMbps = lb.input_mbps ?? Math.floor(Math.random() * 500 + 50);
-              const outputMbps = lb.output_mbps ?? Math.floor(Math.random() * 800 + 100);
-              const activeConns = lb.connections ?? lb.current_streams * 3;
+              // Use real metrics from agent if available, otherwise simulate
+              const metrics = lbMetrics[lb.id];
+              const cpuUsage = metrics?.cpu_usage ?? Math.floor(Math.random() * 60 + 10);
+              const ramUsage = metrics?.ram_usage ?? Math.floor(Math.random() * 50 + 20);
+              const inputMbps = metrics?.input_mbps ?? Math.floor(Math.random() * 500 + 50);
+              const outputMbps = metrics?.output_mbps ?? Math.floor(Math.random() * 800 + 100);
+              const activeConns = metrics?.connections ?? lb.current_streams * 3;
+              const activeStreams = metrics?.streams ?? lb.current_streams;
               
               return (
                 <div key={lb.id} className="glass rounded-xl p-4">

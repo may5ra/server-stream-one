@@ -82,11 +82,139 @@ import http.server
 import json
 import subprocess
 import os
+import time
 from datetime import datetime
 
 PORT = int(os.environ.get('AGENT_PORT', 3002))
 SECRET = os.environ.get('AGENT_SECRET', 'changeme')
-VERSION = '2.1.0'
+VERSION = '2.2.0'
+
+# Cache for metrics
+metrics_cache = {
+    'cpu': 0,
+    'ram': 0,
+    'ram_total': 0,
+    'ram_used': 0,
+    'input_mbps': 0,
+    'output_mbps': 0,
+    'connections': 0,
+    'streams': 0,
+    'uptime': '',
+    'last_update': 0
+}
+
+def get_cpu_usage():
+    try:
+        result = subprocess.run(
+            "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'",
+            shell=True, capture_output=True, text=True, timeout=5
+        )
+        return round(float(result.stdout.strip()), 1)
+    except:
+        return 0
+
+def get_ram_usage():
+    try:
+        result = subprocess.run(
+            "free -m | awk 'NR==2{printf \"%s %s %.1f\", $3, $2, $3*100/$2}'",
+            shell=True, capture_output=True, text=True, timeout=5
+        )
+        parts = result.stdout.strip().split()
+        return {
+            'used_mb': int(parts[0]),
+            'total_mb': int(parts[1]),
+            'percent': float(parts[2])
+        }
+    except:
+        return {'used_mb': 0, 'total_mb': 0, 'percent': 0}
+
+def get_network_usage():
+    try:
+        # Get bytes from all interfaces except lo
+        result = subprocess.run(
+            "cat /proc/net/dev | tail -n +3 | grep -v lo | awk '{rx+=$2; tx+=$10} END {print rx, tx}'",
+            shell=True, capture_output=True, text=True, timeout=5
+        )
+        parts = result.stdout.strip().split()
+        return {'rx_bytes': int(parts[0]), 'tx_bytes': int(parts[1])}
+    except:
+        return {'rx_bytes': 0, 'tx_bytes': 0}
+
+# Store previous network reading for calculating rate
+prev_network = {'rx': 0, 'tx': 0, 'time': 0}
+
+def get_bandwidth():
+    global prev_network
+    current = get_network_usage()
+    current_time = time.time()
+    
+    if prev_network['time'] == 0:
+        prev_network = {'rx': current['rx_bytes'], 'tx': current['tx_bytes'], 'time': current_time}
+        return {'input_mbps': 0, 'output_mbps': 0}
+    
+    time_diff = current_time - prev_network['time']
+    if time_diff < 1:
+        time_diff = 1
+    
+    rx_rate = (current['rx_bytes'] - prev_network['rx']) / time_diff / 1024 / 1024 * 8  # Mbps
+    tx_rate = (current['tx_bytes'] - prev_network['tx']) / time_diff / 1024 / 1024 * 8  # Mbps
+    
+    prev_network = {'rx': current['rx_bytes'], 'tx': current['tx_bytes'], 'time': current_time}
+    
+    return {'input_mbps': round(rx_rate, 2), 'output_mbps': round(tx_rate, 2)}
+
+def get_nginx_connections():
+    try:
+        result = subprocess.run(
+            "netstat -an | grep ':80\\|:8080' | grep ESTABLISHED | wc -l",
+            shell=True, capture_output=True, text=True, timeout=5
+        )
+        return int(result.stdout.strip())
+    except:
+        return 0
+
+def get_active_streams():
+    try:
+        result = subprocess.run(
+            "ls /etc/nginx/sites-enabled/*.conf 2>/dev/null | wc -l",
+            shell=True, capture_output=True, text=True, timeout=5
+        )
+        return max(0, int(result.stdout.strip()) - 1)  # Subtract default config
+    except:
+        return 0
+
+def get_uptime():
+    try:
+        result = subprocess.run(
+            "uptime -p",
+            shell=True, capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip().replace('up ', '')
+    except:
+        return 'unknown'
+
+def update_metrics():
+    global metrics_cache
+    now = time.time()
+    if now - metrics_cache['last_update'] < 2:  # Cache for 2 seconds
+        return metrics_cache
+    
+    ram = get_ram_usage()
+    bw = get_bandwidth()
+    
+    metrics_cache = {
+        'cpu': get_cpu_usage(),
+        'ram': ram['percent'],
+        'ram_total': ram['total_mb'],
+        'ram_used': ram['used_mb'],
+        'input_mbps': bw['input_mbps'],
+        'output_mbps': bw['output_mbps'],
+        'connections': get_nginx_connections(),
+        'streams': get_active_streams(),
+        'uptime': get_uptime(),
+        'last_update': now
+    }
+    return metrics_cache
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -121,6 +249,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/health' or self.path == '/':
             self.send_json(200, {'status': 'ok', 'version': VERSION, 'port': PORT})
+        elif self.path == '/metrics':
+            # No auth required for metrics - quick polling
+            metrics = update_metrics()
+            self.send_json(200, {
+                'status': 'ok',
+                'version': VERSION,
+                'cpu_usage': metrics['cpu'],
+                'ram_usage': metrics['ram'],
+                'ram_total_mb': metrics['ram_total'],
+                'ram_used_mb': metrics['ram_used'],
+                'input_mbps': metrics['input_mbps'],
+                'output_mbps': metrics['output_mbps'],
+                'connections': metrics['connections'],
+                'streams': metrics['streams'],
+                'uptime': metrics['uptime']
+            })
         else:
             self.send_json(404, {'error': 'Not found'})
 
@@ -165,11 +309,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif action == 'health':
             self.send_json(200, {'status': 'ok', 'version': VERSION})
         
+        elif action == 'metrics':
+            metrics = update_metrics()
+            self.send_json(200, metrics)
+        
         else:
             self.send_json(400, {'error': f'Unknown action: {action}'})
 
 if __name__ == '__main__':
     print(f"StreamPanel Agent v{VERSION} on port {PORT}")
+    print(f"Metrics endpoint: http://0.0.0.0:{PORT}/metrics")
     server = http.server.HTTPServer(('0.0.0.0', PORT), Handler)
     server.serve_forever()
 PYTHONCODE
