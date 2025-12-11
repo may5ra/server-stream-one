@@ -3,7 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Users, MapPin } from "lucide-react";
+import { Globe, Users, MapPin, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface UserLocation {
@@ -23,6 +23,7 @@ export const UserLocationMap = () => {
   const [locations, setLocations] = useState<UserLocation[]>([]);
   const [mapboxToken, setMapboxToken] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
 
   // Fetch Mapbox token from edge function
   useEffect(() => {
@@ -31,10 +32,18 @@ export const UserLocationMap = () => {
         const { data, error } = await supabase.functions.invoke('get-mapbox-token');
         if (error) throw error;
         if (data?.token) {
-          setMapboxToken(data.token);
+          // Validate token format (should start with pk.)
+          if (data.token.startsWith('pk.')) {
+            setMapboxToken(data.token);
+          } else {
+            setError('Neispravan Mapbox token format');
+          }
+        } else {
+          setError('Token nije pronađen');
         }
       } catch (e) {
         console.error('Could not fetch Mapbox token:', e);
+        setError('Greška pri dohvaćanju tokena');
       } finally {
         setLoading(false);
       }
@@ -61,33 +70,43 @@ export const UserLocationMap = () => {
   useEffect(() => {
     if (!mapContainer.current || !mapboxToken || map.current) return;
 
-    mapboxgl.accessToken = mapboxToken;
-    
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
-      projection: 'globe',
-      zoom: 3,
-      center: [15, 45],
-      pitch: 20,
-    });
-
-    map.current.addControl(
-      new mapboxgl.NavigationControl({
-        visualizePitch: true,
-      }),
-      'top-right'
-    );
-
-    map.current.scrollZoom.disable();
-
-    map.current.on('style.load', () => {
-      map.current?.setFog({
-        color: 'rgb(20, 20, 30)',
-        'high-color': 'rgb(40, 40, 60)',
-        'horizon-blend': 0.1,
+    try {
+      mapboxgl.accessToken = mapboxToken;
+      
+      map.current = new mapboxgl.Map({
+        container: mapContainer.current,
+        style: 'mapbox://styles/mapbox/dark-v11',
+        projection: 'globe',
+        zoom: 3,
+        center: [15, 45],
+        pitch: 20,
       });
-    });
+
+      map.current.addControl(
+        new mapboxgl.NavigationControl({
+          visualizePitch: true,
+        }),
+        'top-right'
+      );
+
+      map.current.scrollZoom.disable();
+
+      map.current.on('style.load', () => {
+        map.current?.setFog({
+          color: 'rgb(20, 20, 30)',
+          'high-color': 'rgb(40, 40, 60)',
+          'horizon-blend': 0.1,
+        });
+      });
+
+      map.current.on('error', (e) => {
+        console.error('Mapbox error:', e);
+        setError('Greška pri učitavanju mape');
+      });
+    } catch (e) {
+      console.error('Map init error:', e);
+      setError('Greška pri inicijalizaciji mape');
+    }
 
     return () => {
       map.current?.remove();
@@ -145,7 +164,8 @@ export const UserLocationMap = () => {
     return acc;
   }, {} as Record<string, number>);
 
-  if (!mapboxToken && !loading) {
+  // Show error or loading state
+  if (loading) {
     return (
       <Card className="glass">
         <CardHeader>
@@ -156,9 +176,47 @@ export const UserLocationMap = () => {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-            <MapPin className="h-8 w-8 mb-2 opacity-50" />
-            <p className="text-sm">Mapbox token nije konfiguriran</p>
-            <p className="text-xs">Dodaj MAPBOX_PUBLIC_TOKEN u Secrets</p>
+            <div className="h-8 w-8 mb-2 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm">Učitavanje mape...</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!mapboxToken || error) {
+    return (
+      <Card className="glass">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5 text-primary" />
+            Mapa Korisnika
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+            <AlertCircle className="h-8 w-8 mb-2 text-warning" />
+            <p className="text-sm font-medium">{error || 'Mapbox token nije konfiguriran'}</p>
+            <p className="text-xs mt-1 text-center px-4">
+              Dodajte ispravan MAPBOX_PUBLIC_TOKEN u Secrets
+              <br />
+              <span className="text-muted-foreground/70">Token mora početi s "pk."</span>
+            </p>
+          </div>
+          
+          {/* Still show country stats */}
+          <div className="mt-4 p-3 border-t border-border bg-muted/20 rounded-b-lg">
+            <p className="text-xs text-muted-foreground mb-2">Demo lokacije ({locations.length} korisnika):</p>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(countryStats)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([country, count]) => (
+                  <Badge key={country} variant="secondary" className="text-xs">
+                    {country}: {count}
+                  </Badge>
+                ))}
+            </div>
           </div>
         </CardContent>
       </Card>
