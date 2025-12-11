@@ -177,35 +177,44 @@ serve(async (req) => {
     }
 
     if (action === 'deploy') {
-      // Try to deploy via agent first
-      const agentUrl = `http://${lb.ip_address}:${Deno.env.get('AGENT_PORT') || '3002'}/deploy`;
+      // Try to deploy via agent first - agent uses root path with action in body
+      const agentPort = Deno.env.get('AGENT_PORT') || '3002';
+      const agentUrl = `http://${lb.ip_address}:${agentPort}`;
+      const agentSecret = Deno.env.get('AGENT_SECRET') || 'superbase123';
       
       let deploySuccess = false;
       let deployMessage = '';
 
+      console.log(`Attempting deploy to agent at ${agentUrl} with secret`);
+
       try {
-        const agentSecret = Deno.env.get('AGENT_SECRET');
-        const deployResponse = await fetch(agentUrl, {
+        // Step 1: Write config file
+        const writeResponse = await fetch(agentUrl, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'X-Agent-Secret': agentSecret || ''
+            'X-Agent-Secret': agentSecret
           },
           body: JSON.stringify({
-            action: 'write-config',
-            path: '/etc/nginx/sites-available/streampanel-lb.conf',
-            content: nginxConfig
+            action: 'execute',
+            command: `cat > /etc/nginx/sites-available/streampanel-lb.conf << 'NGINXEOF'
+${nginxConfig}
+NGINXEOF`
           }),
           signal: AbortSignal.timeout(30000),
         });
 
-        if (deployResponse.ok) {
-          // Enable the site and reload nginx
-          await fetch(agentUrl, {
+        console.log(`Write config response: ${writeResponse.status}`);
+        const writeResult = await writeResponse.json();
+        console.log('Write result:', JSON.stringify(writeResult));
+
+        if (writeResponse.ok && writeResult.success) {
+          // Step 2: Enable site and reload nginx
+          const reloadResponse = await fetch(agentUrl, {
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
-              'X-Agent-Secret': agentSecret || ''
+              'X-Agent-Secret': agentSecret
             },
             body: JSON.stringify({
               action: 'execute',
@@ -214,12 +223,23 @@ serve(async (req) => {
             signal: AbortSignal.timeout(30000),
           });
 
-          deploySuccess = true;
-          deployMessage = 'Deployed via agent';
+          console.log(`Reload nginx response: ${reloadResponse.status}`);
+          const reloadResult = await reloadResponse.json();
+          console.log('Reload result:', JSON.stringify(reloadResult));
+
+          if (reloadResponse.ok && reloadResult.success) {
+            deploySuccess = true;
+            deployMessage = 'Configuration deployed and nginx reloaded successfully';
+          } else {
+            deployMessage = `Nginx reload failed: ${reloadResult.output || 'Unknown error'}`;
+          }
+        } else {
+          deployMessage = `Config write failed: ${writeResult.output || 'Unknown error'}`;
         }
       } catch (e) {
-        console.log('Agent deployment failed, returning config for manual deploy');
-        deployMessage = 'Agent not available - manual deployment required';
+        const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+        console.log('Agent deployment failed:', errorMsg);
+        deployMessage = `Agent error: ${errorMsg}`;
       }
 
       // Update last_deploy timestamp
