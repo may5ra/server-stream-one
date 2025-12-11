@@ -45,8 +45,9 @@ export const useRealtimeNotifications = () => {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('[Realtime] Users channel status:', status);
+        if (err) console.error('[Realtime] Users channel error:', err);
       });
 
     // Listen for new/updated streams
@@ -93,8 +94,9 @@ export const useRealtimeNotifications = () => {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('[Realtime] Streams channel status:', status);
+        if (err) console.error('[Realtime] Streams channel error:', err);
       });
 
     return () => {
