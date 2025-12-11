@@ -17,6 +17,12 @@ interface LoadBalancer {
   ssh_password?: string;
   nginx_port?: number;
   last_deploy?: string;
+  // Real-time metrics
+  cpu_usage?: number;
+  ram_usage?: number;
+  input_mbps?: number;
+  output_mbps?: number;
+  connections?: number;
 }
 
 export const useLoadBalancers = () => {
