@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { GeoBlockSettings } from "@/components/GeoBlockSettings";
 
 const Security = () => {
   const { toast } = useToast();
@@ -203,9 +204,14 @@ const Security = () => {
                     checked={securitySettings.loginNotifications}
                     onCheckedChange={(checked) => setSecuritySettings({...securitySettings, loginNotifications: checked})}
                   />
-                </div>
               </div>
             </div>
+
+            {/* Geo-Blocking */}
+            <div className="lg:col-span-2">
+              <GeoBlockSettings />
+            </div>
+          </div>
           </div>
         </main>
       </div>

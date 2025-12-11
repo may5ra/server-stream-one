@@ -141,6 +141,33 @@ export type Database = {
         }
         Relationships: []
       }
+      geo_blocked_countries: {
+        Row: {
+          blocked_at: string
+          blocked_by: string | null
+          country_code: string
+          country_name: string
+          id: string
+          reason: string | null
+        }
+        Insert: {
+          blocked_at?: string
+          blocked_by?: string | null
+          country_code: string
+          country_name: string
+          id?: string
+          reason?: string | null
+        }
+        Update: {
+          blocked_at?: string
+          blocked_by?: string | null
+          country_code?: string
+          country_name?: string
+          id?: string
+          reason?: string | null
+        }
+        Relationships: []
+      }
       live_categories: {
         Row: {
           created_at: string

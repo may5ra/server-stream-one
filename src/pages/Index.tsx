@@ -7,6 +7,7 @@ import { StreamsTable } from "@/components/dashboard/StreamsTable";
 import { ServerStatus } from "@/components/dashboard/ServerStatus";
 import { ServerCards } from "@/components/dashboard/ServerCards";
 import { QuickActions } from "@/components/dashboard/QuickActions";
+import { UserLocationMap } from "@/components/dashboard/UserLocationMap";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 
 const Index = () => {
@@ -127,8 +128,9 @@ const Index = () => {
               <StreamsTable streams={recentStreams} />
             </div>
             
-            {/* Quick Actions */}
-            <div>
+            {/* User Map + Quick Actions */}
+            <div className="space-y-4">
+              <UserLocationMap />
               <QuickActions />
             </div>
           </div>
