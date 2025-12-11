@@ -1,4 +1,4 @@
-import { Cpu, HardDrive, MemoryStick, Network } from "lucide-react";
+import { Cpu, HardDrive, MemoryStick, Network, Clock, Activity } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 interface ServerStatusProps {
@@ -7,15 +7,32 @@ interface ServerStatusProps {
   avgDisk: number;
   avgNetwork: number;
   onlineServers: number;
+  uptime?: string;
+  activeConnections?: number;
 }
 
-export function ServerStatus({ avgCpu, avgMemory, avgDisk, avgNetwork, onlineServers }: ServerStatusProps) {
+export function ServerStatus({ 
+  avgCpu, 
+  avgMemory, 
+  avgDisk, 
+  avgNetwork, 
+  onlineServers,
+  uptime = "0m",
+  activeConnections = 0
+}: ServerStatusProps) {
   const metrics = [
     { icon: Cpu, label: "CPU", value: avgCpu, unit: "%", color: "bg-primary" },
     { icon: MemoryStick, label: "Memorija", value: avgMemory, unit: "%", color: "bg-warning" },
     { icon: HardDrive, label: "Disk", value: avgDisk, unit: "%", color: "bg-success" },
     { icon: Network, label: "Mreža", value: avgNetwork, unit: "Mbps", color: "bg-accent" },
   ];
+
+  // Get color based on value
+  const getValueColor = (value: number) => {
+    if (value >= 90) return "text-destructive";
+    if (value >= 70) return "text-warning";
+    return "text-success";
+  };
 
   return (
     <div className="glass rounded-xl p-4 sm:p-5 animate-fade-up" style={{ animationDelay: '0.15s' }}>
@@ -34,7 +51,7 @@ export function ServerStatus({ avgCpu, avgMemory, avgDisk, avgNetwork, onlineSer
                 <metric.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
                 <span className="text-xs sm:text-sm text-foreground">{metric.label}</span>
               </div>
-              <span className="font-mono text-xs sm:text-sm text-foreground">
+              <span className={`font-mono text-xs sm:text-sm font-medium ${getValueColor(metric.label === "Mreža" ? Math.min(metric.value, 100) : metric.value)}`}>
                 {metric.value}{metric.unit}
               </span>
             </div>
@@ -48,12 +65,22 @@ export function ServerStatus({ avgCpu, avgMemory, avgDisk, avgNetwork, onlineSer
 
       <div className="mt-4 sm:mt-5 grid grid-cols-2 gap-2 sm:gap-3">
         <div className="rounded-lg bg-muted/50 p-2 sm:p-3 text-center">
-          <p className="text-lg sm:text-2xl font-semibold text-foreground">{onlineServers > 0 ? "99.9%" : "-"}</p>
+          <div className="flex items-center justify-center gap-1 mb-1">
+            <Clock className="h-3 w-3 text-primary" />
+          </div>
+          <p className="text-lg sm:text-xl font-semibold text-foreground">
+            {onlineServers > 0 ? uptime : "-"}
+          </p>
           <p className="text-[10px] sm:text-xs text-muted-foreground">Uptime</p>
         </div>
         <div className="rounded-lg bg-muted/50 p-2 sm:p-3 text-center">
-          <p className="text-lg sm:text-2xl font-semibold text-foreground">{onlineServers > 0 ? "12ms" : "-"}</p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground">Latencija</p>
+          <div className="flex items-center justify-center gap-1 mb-1">
+            <Activity className="h-3 w-3 text-success" />
+          </div>
+          <p className="text-lg sm:text-xl font-semibold text-foreground">
+            {activeConnections}
+          </p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground">Konekcije</p>
         </div>
       </div>
     </div>

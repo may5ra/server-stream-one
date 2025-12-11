@@ -108,6 +108,8 @@ const Index = () => {
                 avgDisk={stats.avgDisk}
                 avgNetwork={stats.avgNetwork}
                 onlineServers={stats.onlineServers}
+                uptime={stats.uptime}
+                activeConnections={stats.activeConnections}
               />
             </div>
           </div>
