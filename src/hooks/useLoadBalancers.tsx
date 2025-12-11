@@ -32,13 +32,34 @@ export const useLoadBalancers = () => {
   const { data: loadBalancers = [], isLoading, refetch } = useQuery({
     queryKey: ["load-balancers"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // First get all load balancers
+      const { data: lbData, error: lbError } = await supabase
         .from("load_balancers")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
-      return data as LoadBalancer[];
+      if (lbError) throw lbError;
+      
+      // Then count streams for each load balancer
+      const { data: streamCounts, error: streamError } = await supabase
+        .from("streams")
+        .select("load_balancer_id");
+
+      if (streamError) throw streamError;
+      
+      // Calculate actual stream counts per LB
+      const countsByLb: Record<string, number> = {};
+      streamCounts?.forEach(s => {
+        if (s.load_balancer_id) {
+          countsByLb[s.load_balancer_id] = (countsByLb[s.load_balancer_id] || 0) + 1;
+        }
+      });
+      
+      // Merge counts into LB data
+      return (lbData as LoadBalancer[]).map(lb => ({
+        ...lb,
+        current_streams: countsByLb[lb.id] || 0
+      }));
     },
   });
 
