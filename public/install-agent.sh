@@ -1,11 +1,11 @@
 #!/bin/bash
-# StreamPanel Load Balancer Agent v2.0
-# Install: curl -sSL http://YOUR_SERVER/install-agent.sh | sudo bash -s -- --secret=YOUR_SECRET
+# StreamPanel Load Balancer Agent v2.1
+# Automatska instalacija agenta i nginx-a
 
 set -e
 
 echo "=========================================="
-echo "StreamPanel LB Agent Installer v2.0"
+echo "StreamPanel LB Agent Installer v2.1"
 echo "=========================================="
 
 # Default values
@@ -34,27 +34,48 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# Stop existing agent if running
-echo "[1/6] Stopping existing agent..."
+# Stop existing services
+echo "[1/8] Stopping existing services..."
 systemctl stop streampanel-agent 2>/dev/null || true
 systemctl disable streampanel-agent 2>/dev/null || true
+systemctl stop nginx 2>/dev/null || true
+
+# Kill any process on agent port
+fuser -k ${AGENT_PORT}/tcp 2>/dev/null || true
+
+# Fix any broken packages
+echo "[2/8] Fixing broken packages..."
+dpkg --configure -a 2>/dev/null || true
+apt-get --fix-broken install -y 2>/dev/null || true
 
 # Install dependencies
-echo "[2/6] Installing dependencies..."
+echo "[3/8] Installing dependencies..."
 apt-get update -qq
-apt-get install -y -qq python3 nginx curl
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 curl ufw
 
-# Create directory
+# Install nginx separately (more robust)
+echo "[4/8] Installing nginx..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y nginx || {
+  echo "Retrying nginx installation..."
+  apt-get remove -y nginx nginx-common nginx-core 2>/dev/null || true
+  apt-get autoremove -y
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y nginx
+}
+
+# Create directories
 AGENT_DIR="/opt/streampanel"
 LOG_FILE="/var/log/streampanel-agent.log"
 
-echo "[3/6] Creating agent directory..."
+echo "[5/8] Creating directories..."
 mkdir -p "$AGENT_DIR"
+mkdir -p /etc/nginx/sites-available
+mkdir -p /etc/nginx/sites-enabled
 rm -f "$AGENT_DIR/agent.py"
 touch "$LOG_FILE"
 
 # Create the agent script
-echo "[4/6] Creating agent script..."
+echo "[6/8] Creating agent script..."
 cat > "$AGENT_DIR/agent.py" << 'PYTHONCODE'
 #!/usr/bin/env python3
 import http.server
@@ -65,14 +86,17 @@ from datetime import datetime
 
 PORT = int(os.environ.get('AGENT_PORT', 3002))
 SECRET = os.environ.get('AGENT_SECRET', 'changeme')
-VERSION = '2.0.0'
+VERSION = '2.1.0'
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         msg = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {format % args}"
         print(msg)
-        with open('/var/log/streampanel-agent.log', 'a') as f:
-            f.write(msg + '\n')
+        try:
+            with open('/var/log/streampanel-agent.log', 'a') as f:
+                f.write(msg + '\n')
+        except:
+            pass
 
     def send_json(self, code, data):
         self.send_response(code)
@@ -129,7 +153,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif action == 'execute':
             cmd = data.get('command', '')
             try:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
                 self.send_json(200, {
                     'success': result.returncode == 0,
                     'output': result.stdout + result.stderr,
@@ -153,7 +177,7 @@ PYTHONCODE
 chmod +x "$AGENT_DIR/agent.py"
 
 # Create systemd service
-echo "[5/6] Creating systemd service..."
+echo "[7/8] Creating systemd service..."
 rm -f /etc/systemd/system/streampanel-agent.service
 
 cat > /etc/systemd/system/streampanel-agent.service << SERVICEEOF
@@ -175,15 +199,52 @@ StandardError=append:/var/log/streampanel-agent.log
 WantedBy=multi-user.target
 SERVICEEOF
 
-# Setup nginx
-mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-grep -q "sites-enabled" /etc/nginx/nginx.conf || sed -i '/http {/a \    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
+# Configure nginx
+echo "[7.5/8] Configuring nginx..."
 
-# Start service
-echo "[6/6] Starting agent..."
+# Make sure nginx includes sites-enabled
+if ! grep -q "sites-enabled" /etc/nginx/nginx.conf 2>/dev/null; then
+  sed -i '/http {/a \    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf 2>/dev/null || true
+fi
+
+# Remove default site if it conflicts
+rm -f /etc/nginx/sites-enabled/default
+
+# Test nginx config
+nginx -t 2>/dev/null || {
+  echo "Creating minimal nginx config..."
+  cat > /etc/nginx/nginx.conf << 'NGINXCONF'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+    include /etc/nginx/sites-enabled/*;
+}
+NGINXCONF
+}
+
+# Start services
+echo "[8/8] Starting services..."
 systemctl daemon-reload
+systemctl enable nginx
+systemctl start nginx || true
 systemctl enable streampanel-agent
 systemctl start streampanel-agent
+
+# Open firewall
+echo "Opening firewall ports..."
+ufw allow $AGENT_PORT/tcp 2>/dev/null || true
+ufw allow 80/tcp 2>/dev/null || true
+ufw allow 8080/tcp 2>/dev/null || true
 
 # Wait and test
 sleep 3
@@ -194,15 +255,19 @@ echo "Testing agent on port $AGENT_PORT..."
 echo "=========================================="
 
 if curl -s "http://localhost:$AGENT_PORT/health" 2>/dev/null | grep -q "ok"; then
-    echo "SUCCESS! Agent is running!"
+    PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
     echo ""
-    echo "Agent URL: http://$(hostname -I | awk '{print $1}'):$AGENT_PORT"
-    echo "Health:    http://$(hostname -I | awk '{print $1}'):$AGENT_PORT/health"
+    echo "✅ SUCCESS! Agent is running!"
     echo ""
-    echo "IMPORTANT: Open firewall port!"
-    echo "  ufw allow $AGENT_PORT/tcp"
+    echo "Agent URL: http://${PUBLIC_IP}:$AGENT_PORT"
+    echo "Health:    http://${PUBLIC_IP}:$AGENT_PORT/health"
+    echo ""
+    echo "Nginx status: $(systemctl is-active nginx)"
+    echo ""
+    echo "U panelu koristi ovu IP adresu: $PUBLIC_IP"
 else
-    echo "WARNING: Agent may not be running properly"
+    echo ""
+    echo "⚠️ WARNING: Agent may not be running properly"
     echo "Check logs: journalctl -u streampanel-agent -n 50"
     echo ""
     echo "Try manual start:"

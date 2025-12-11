@@ -12,12 +12,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useLoadBalancers } from "@/hooks/useLoadBalancers";
 import { useServers } from "@/hooks/useServers";
+import { useSettings } from "@/hooks/useSettings";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 const LoadBalancers = () => {
   const { loadBalancers, isLoading, addLoadBalancer, updateLoadBalancer, deleteLoadBalancer } = useLoadBalancers();
   const { servers } = useServers();
+  const { settings } = useSettings();
   const { toast } = useToast();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingLB, setEditingLB] = useState<any>(null);
@@ -309,20 +311,35 @@ const LoadBalancers = () => {
               </p>
               <div className="relative">
                 <pre className="bg-background rounded-lg p-3 text-sm overflow-x-auto border border-border">
-                  <code className="text-primary">curl -sSL "{window.location.origin}/install-agent.sh?v=$(date +%s)" | sudo bash -s -- --secret=TVOJ_TAJNI_KLJUC</code>
+                  <code className="text-primary">{(() => {
+                    const serverUrl = settings.serverDomain 
+                      ? `http${settings.enableSSL ? 's' : ''}://${settings.serverDomain}` 
+                      : window.location.origin;
+                    return `curl -sSL "${serverUrl}/install-agent.sh" | sudo bash -s -- --secret=superbase123`;
+                  })()}</code>
                 </pre>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="absolute top-2 right-2"
-                  onClick={() => copyToClipboard(`curl -sSL "${window.location.origin}/install-agent.sh?v=$(date +%s)" | sudo bash -s -- --secret=TVOJ_TAJNI_KLJUC`, 'install')}
+                  onClick={() => {
+                    const serverUrl = settings.serverDomain 
+                      ? `http${settings.enableSSL ? 's' : ''}://${settings.serverDomain}` 
+                      : window.location.origin;
+                    copyToClipboard(`curl -sSL "${serverUrl}/install-agent.sh" | sudo bash -s -- --secret=superbase123`, 'install');
+                  }}
                 >
                   {copiedCommand === 'install' ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                💡 Zamijeni <code className="bg-muted px-1 rounded">TVOJ_TAJNI_KLJUC</code> sa sigurnom lozinkom
+                💡 Možeš promijeniti <code className="bg-muted px-1 rounded">superbase123</code> sa vlastitim tajnim ključem
               </p>
+              {!settings.serverDomain && (
+                <p className="text-xs text-warning mt-2">
+                  ⚠️ Postavi Server Domain u Settings da bi komanda koristila tvoj server
+                </p>
+              )}
             </div>
 
             <div className="bg-muted/50 rounded-lg p-4 border border-border">
