@@ -535,34 +535,42 @@ app.all('/stalker', handleStalkerRequest);
 app.all('/stalker/', handleStalkerRequest);
 
 // Live stream for MAG devices (before catch-all)
-app.get('/live/:streamName', async (req, res) => {
+app.get('/live/:streamName', async (req, res, next) => {
   try {
     const { streamName } = req.params;
     const decodedName = decodeURIComponent(streamName);
-    
+
+    // If this looks like a TS segment (e.g. Slo1.ts), let the more specific
+    // /live/:streamName.ts route handle it (used by IPTV players)
+    if (decodedName.toLowerCase().endsWith('.ts')) {
+      return next();
+    }
+
+    // Normal MAG/Stalker style request without extension
     console.log(`[Live] MAG request for: ${decodedName}`);
-    
-    // Get stream (match by name, tolerant for small differences)
+
+    // Normalize name for DB lookup (case-insensitive, no extension just in case)
+    const baseName = decodedName.replace(/\.[^/.]+$/, '');
+
     const result = await pool.query(
-      'SELECT input_url FROM streams WHERE LOWER(name) LIKE LOWER($1) || '%' ORDER BY name LIMIT 1',
-      [decodedName]
+      'SELECT input_url FROM streams WHERE LOWER(name) = LOWER($1) LIMIT 1',
+      [baseName]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).send('Stream not found');
     }
-    
+
     // Redirect to source or proxy
     const inputUrl = result.rows[0].input_url;
-    
+
     // For HLS, redirect directly
     if (inputUrl.includes('.m3u8')) {
       return res.redirect(302, inputUrl);
     }
-    
+
     // For other streams, proxy through existing mechanism
     res.redirect(302, `/proxy/${encodeURIComponent(streamName)}/index.m3u8`);
-    
   } catch (error) {
     console.error('[Live] Error:', error);
     res.status(500).send('Stream error');
