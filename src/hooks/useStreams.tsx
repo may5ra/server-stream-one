@@ -88,6 +88,24 @@ const syncAllStreamsToBackend = async (streams: Stream[]) => {
   }
 };
 
+// Sync load balancers to Docker backend
+const syncLoadBalancersToBackend = async () => {
+  try {
+    const { data: loadBalancers } = await supabase
+      .from('load_balancers')
+      .select('*');
+    
+    if (loadBalancers && loadBalancers.length > 0) {
+      const result = await callBackendSync('sync-load-balancers', loadBalancers);
+      if (result) {
+        console.log(`[Sync] Load balancers synced: ${loadBalancers.length}`);
+      }
+    }
+  } catch (err) {
+    console.error('[Sync] LB sync error:', err);
+  }
+};
+
 // Auto-deploy LB config when stream is assigned/removed from LB
 const deployLoadBalancerConfig = async (loadBalancerId: string) => {
   if (!loadBalancerId) return;
@@ -134,6 +152,8 @@ export const useStreams = () => {
       setStreams(data || []);
       // Auto-sync all streams to backend on fetch (background)
       if (data && data.length > 0) {
+        // First sync load balancers, then streams
+        syncLoadBalancersToBackend();
         syncAllStreamsToBackend(data as Stream[]);
       }
     }

@@ -18,8 +18,9 @@ const pool = new Pool({
 
 // ==================== PERFORMANCE CACHE ====================
 // In-memory cache for fast stream/user lookups (reduces DB queries from 5 to 0 for cached requests)
-const streamCache = new Map(); // name -> {input_url, cachedAt}
+const streamCache = new Map(); // name -> {input_url, load_balancer_id, lb_ip, lb_port, cachedAt}
 const userCache = new Map(); // username -> {user, cachedAt}
+const lbCache = new Map(); // id -> {ip_address, nginx_port}
 const CACHE_TTL = 10000; // 10 seconds cache - short TTL for quick status updates
 
 // Helper function for getting default manifest filename
@@ -86,9 +87,18 @@ async function prewarmCache() {
   try {
     console.log('[Cache] Pre-warming cache...');
     
-    // Load all active streams (include status for proxy check)
+    // Load all load balancers first
+    const lbResult = await pool.query(
+      "SELECT id, ip_address, nginx_port FROM load_balancers WHERE status = 'active'"
+    );
+    for (const lb of lbResult.rows) {
+      lbCache.set(lb.id, { ip_address: lb.ip_address, nginx_port: lb.nginx_port || 8080 });
+    }
+    console.log(`[Cache] Loaded ${lbResult.rows.length} load balancers`);
+    
+    // Load all active streams with LB info
     const streamsResult = await pool.query(
-      "SELECT name, input_url, status FROM streams WHERE status != 'error'"
+      "SELECT s.name, s.input_url, s.status, s.load_balancer_id, lb.ip_address as lb_ip, lb.nginx_port as lb_port FROM streams s LEFT JOIN load_balancers lb ON s.load_balancer_id = lb.id WHERE s.status != 'error'"
     );
     for (const stream of streamsResult.rows) {
       setCachedStream(stream.name, stream);
@@ -113,8 +123,18 @@ async function prewarmCache() {
 // Refresh cache every 30 seconds to keep it warm
 setInterval(async () => {
   try {
+    // Refresh load balancers
+    const lbResult = await pool.query(
+      "SELECT id, ip_address, nginx_port FROM load_balancers WHERE status = 'active'"
+    );
+    lbCache.clear();
+    for (const lb of lbResult.rows) {
+      lbCache.set(lb.id, { ip_address: lb.ip_address, nginx_port: lb.nginx_port || 8080 });
+    }
+    
+    // Refresh streams with LB info
     const streamsResult = await pool.query(
-      "SELECT name, input_url, status FROM streams WHERE status != 'error'"
+      "SELECT s.name, s.input_url, s.status, s.load_balancer_id, lb.ip_address as lb_ip, lb.nginx_port as lb_port FROM streams s LEFT JOIN load_balancers lb ON s.load_balancer_id = lb.id WHERE s.status != 'error'"
     );
     for (const stream of streamsResult.rows) {
       setCachedStream(stream.name, stream);
@@ -710,8 +730,8 @@ app.post('/api/streams/sync', async (req, res) => {
       }
       try {
         await pool.query(`
-          INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers, created_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+          INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers, load_balancer_id, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
           ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             input_type = EXCLUDED.input_type,
@@ -732,6 +752,7 @@ app.post('/api/streams/sync', async (req, res) => {
             stream_icon = EXCLUDED.stream_icon,
             epg_channel_id = EXCLUDED.epg_channel_id,
             status = EXCLUDED.status,
+            load_balancer_id = EXCLUDED.load_balancer_id,
             updated_at = NOW()
         `, [
           stream.id,
@@ -755,6 +776,7 @@ app.post('/api/streams/sync', async (req, res) => {
           stream.epg_channel_id || null,
           stream.status || 'inactive',
           stream.viewers || 0,
+          stream.load_balancer_id || null,
           stream.created_at || new Date().toISOString()
         ]);
         synced++;
@@ -778,13 +800,14 @@ app.post('/api/streams/sync-one', async (req, res) => {
   try {
     const stream = req.body;
     
-    // Enhanced logging for WebVTT debugging
+    // Enhanced logging for WebVTT and LB debugging
     console.log(`[Sync-One] Received stream: ${stream.name}`);
     console.log(`[Sync-One] WebVTT data: enabled=${stream.webvtt_enabled}, url=${stream.webvtt_url}, label=${stream.webvtt_label}`);
+    console.log(`[Sync-One] LB: ${stream.load_balancer_id || 'none'}`);
     
     await pool.query(`
-      INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      INSERT INTO streams (id, name, input_type, input_url, category, bouquet, channel_number, output_formats, bitrate, resolution, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label, dvr_enabled, dvr_duration, abr_enabled, stream_icon, epg_channel_id, status, viewers, load_balancer_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         input_type = EXCLUDED.input_type,
@@ -805,6 +828,7 @@ app.post('/api/streams/sync-one', async (req, res) => {
         stream_icon = EXCLUDED.stream_icon,
         epg_channel_id = EXCLUDED.epg_channel_id,
         status = EXCLUDED.status,
+        load_balancer_id = EXCLUDED.load_balancer_id,
         updated_at = NOW()
     `, [
       stream.id,
@@ -827,13 +851,14 @@ app.post('/api/streams/sync-one', async (req, res) => {
       stream.stream_icon || null,
       stream.epg_channel_id || null,
       stream.status || 'inactive',
-      stream.viewers || 0
+      stream.viewers || 0,
+      stream.load_balancer_id || null
     ]);
     
     // Invalidate cache for this stream immediately
     invalidateStreamCache(stream.name);
     
-    console.log(`[Sync] Synced stream: ${stream.name}, status: ${stream.status || 'inactive'}, webvtt=${stream.webvtt_enabled || false}`);
+    console.log(`[Sync] Synced stream: ${stream.name}, status: ${stream.status || 'inactive'}, webvtt=${stream.webvtt_enabled || false}, lb=${stream.load_balancer_id || 'none'}`);
     res.json({ success: true, synced: stream.name, webvtt_enabled: stream.webvtt_enabled || false });
   } catch (error) {
     console.error('[Sync] Stream error:', error);
@@ -903,6 +928,73 @@ app.post('/api/streams/cleanup', async (req, res) => {
     res.json({ success: true, deleted });
   } catch (error) {
     console.error('[Sync] Cleanup error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== LOAD BALANCERS SYNC ====================
+
+// Sync load balancers from Supabase
+app.post('/api/load-balancers/sync', async (req, res) => {
+  try {
+    const { loadBalancers } = req.body;
+    
+    console.log(`[Sync] Received ${loadBalancers?.length || 0} load balancers to sync`);
+    
+    if (!Array.isArray(loadBalancers)) {
+      return res.status(400).json({ error: 'loadBalancers array required' });
+    }
+    
+    let synced = 0, errors = [];
+    
+    for (const lb of loadBalancers) {
+      try {
+        await pool.query(`
+          INSERT INTO load_balancers (id, name, ip_address, port, nginx_port, status, max_streams, ssh_username, ssh_password, last_deploy, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            ip_address = EXCLUDED.ip_address,
+            port = EXCLUDED.port,
+            nginx_port = EXCLUDED.nginx_port,
+            status = EXCLUDED.status,
+            max_streams = EXCLUDED.max_streams,
+            ssh_username = EXCLUDED.ssh_username,
+            ssh_password = EXCLUDED.ssh_password,
+            last_deploy = EXCLUDED.last_deploy,
+            updated_at = NOW()
+        `, [
+          lb.id,
+          lb.name,
+          lb.ip_address,
+          lb.port || 80,
+          lb.nginx_port || 8080,
+          lb.status || 'active',
+          lb.max_streams || 100,
+          lb.ssh_username || null,
+          lb.ssh_password || null,
+          lb.last_deploy || null,
+          lb.created_at || new Date().toISOString()
+        ]);
+        synced++;
+      } catch (err) {
+        errors.push({ name: lb.name, error: err.message });
+      }
+    }
+    
+    // Refresh LB cache
+    const lbResult = await pool.query(
+      "SELECT id, ip_address, nginx_port FROM load_balancers WHERE status = 'active'"
+    );
+    lbCache.clear();
+    for (const lb of lbResult.rows) {
+      lbCache.set(lb.id, { ip_address: lb.ip_address, nginx_port: lb.nginx_port || 8080 });
+    }
+    
+    console.log(`[Sync] Synced ${synced} load balancers`);
+    res.json({ success: true, synced, errors });
+  } catch (error) {
+    console.error('[Sync] Load balancers error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2254,12 +2346,16 @@ app.get('/live/:streamName.ts', async (req, res) => {
       }
     }
     
-    // Get stream with WebVTT data
+    // Get stream with WebVTT and LB data
     const decodedName = decodeURIComponent(streamName);
     let stream = getCachedStream(decodedName);
     if (!stream) {
       const result = await pool.query(
-        'SELECT input_url, webvtt_enabled, webvtt_url, webvtt_language, webvtt_label FROM streams WHERE name = $1', 
+        `SELECT s.input_url, s.webvtt_enabled, s.webvtt_url, s.webvtt_language, s.webvtt_label, 
+                s.load_balancer_id, lb.ip_address as lb_ip, lb.nginx_port as lb_port 
+         FROM streams s 
+         LEFT JOIN load_balancers lb ON s.load_balancer_id = lb.id 
+         WHERE s.name = $1`, 
         [decodedName]
       );
       if (result.rows.length === 0) {
@@ -2267,6 +2363,13 @@ app.get('/live/:streamName.ts', async (req, res) => {
       }
       stream = result.rows[0];
       setCachedStream(decodedName, stream);
+    }
+    
+    // If stream has a Load Balancer assigned, redirect to it
+    if (stream.lb_ip && stream.lb_port) {
+      const lbUrl = `http://${stream.lb_ip}:${stream.lb_port}/live/${encodeURIComponent(decodedName)}.ts?username=${username}&password=${password}`;
+      console.log(`[FFmpeg] Redirecting to LB: ${lbUrl}`);
+      return res.redirect(302, lbUrl);
     }
     
     // Set headers for MPEG-TS stream

@@ -46,6 +46,23 @@ CREATE TABLE IF NOT EXISTS servers (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Load Balancers
+CREATE TABLE IF NOT EXISTS load_balancers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    ip_address TEXT NOT NULL,
+    port INTEGER DEFAULT 80,
+    nginx_port INTEGER DEFAULT 8080,
+    status TEXT DEFAULT 'active',
+    max_streams INTEGER DEFAULT 100,
+    current_streams INTEGER DEFAULT 0,
+    ssh_username TEXT,
+    ssh_password TEXT,
+    last_deploy TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Live categories
 CREATE TABLE IF NOT EXISTS live_categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -77,6 +94,7 @@ CREATE TABLE IF NOT EXISTS streams (
     dvr_enabled BOOLEAN DEFAULT FALSE,
     dvr_duration INTEGER DEFAULT 24,
     abr_enabled BOOLEAN DEFAULT FALSE,
+    load_balancer_id UUID REFERENCES load_balancers(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
