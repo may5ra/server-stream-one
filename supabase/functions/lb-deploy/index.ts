@@ -36,6 +36,9 @@ function generateNginxConfig(streams: Stream[], lbPort: number, supabaseUrl: str
     const normalizedName = lowerName.replace(/[^a-z0-9]/g, "");
     const inputUrl = stream.input_url;
 
+    // Map using original stream name (case-sensitive)
+    urlMapEntries.push(`    "${streamName}" "${inputUrl}";`);
+
     // Map original lowercase name
     urlMapEntries.push(`    "${lowerName}" "${inputUrl}";`);
 
@@ -114,6 +117,29 @@ server {
         proxy_set_header Authorization "Bearer ${supabaseKey}";
         proxy_set_header Prefer "return=representation";
         proxy_ssl_server_name on;
+    }
+
+    # Debug live resolution + auth
+    # Example: /debug/live?name=HBO&username=Test3&password=Test3
+    location /debug/live {
+        default_type application/json;
+
+        set $stream_name $arg_name;
+        set $stream_name_lower $arg_name;
+
+        # Authenticate via backend using same args
+        auth_request /_auth;
+        auth_request_set $auth_status $upstream_status;
+
+        if ($auth_status !~ ^2) {
+            return 401 '{"error":"Unauthorized","auth_status":"$auth_status","upstream_status":"$upstream_status"}';
+        }
+
+        if ($stream_backend_url = "") {
+            return 404 '{"error":"Stream not found","name":"$stream_name_lower"}';
+        }
+
+        return 200 '{"auth_status":"$auth_status","backend_url":"$stream_backend_url"}';
     }
 
     # Live streams entry point - authenticates and proxies directly to backend URL
