@@ -171,8 +171,8 @@ server {
             return 404 '{"error":"Stream not found","name":"$stream_name_lower"}';
         }
         
-        # Proxy to backend: host + base_path + requested segment
-        proxy_pass $stream_backend_host$stream_base_path$segment_path$is_args$args;
+        # Proxy to backend: host + requested path without /s/<stream>/ prefix
+        proxy_pass $stream_backend_host/$segment_path$is_args$args;
         proxy_http_version 1.1;
         
         # Essential headers
