@@ -102,8 +102,9 @@ server {
         proxy_set_header apikey "${supabaseKey}";
         proxy_set_header Authorization "Bearer ${supabaseKey}";
         proxy_set_header Prefer "return=representation";
+        proxy_ssl_server_name on;
     }
-
+ 
     # Debug auth endpoint - proxies auth query to backend for troubleshooting
     location /debug/auth {
         proxy_pass ${supabaseUrl}/rest/v1/streaming_users?select=id&username=eq.$arg_username&password=eq.$arg_password&status=eq.online;
@@ -112,6 +113,7 @@ server {
         proxy_set_header apikey "${supabaseKey}";
         proxy_set_header Authorization "Bearer ${supabaseKey}";
         proxy_set_header Prefer "return=representation";
+        proxy_ssl_server_name on;
     }
 
     # Live streams entry point - authenticates and proxies directly to backend URL
