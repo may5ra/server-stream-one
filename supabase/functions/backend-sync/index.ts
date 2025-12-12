@@ -49,6 +49,10 @@ serve(async (req) => {
         endpoint = '/api/streaming-users/sync';
         body = JSON.stringify({ users: data });
         break;
+      case 'sync-load-balancers':
+        endpoint = '/api/load-balancers/sync';
+        body = JSON.stringify({ loadBalancers: data });
+        break;
       case 'health':
         endpoint = '/api/health';
         method = 'GET';
