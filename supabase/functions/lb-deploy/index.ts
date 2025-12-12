@@ -104,6 +104,16 @@ server {
         proxy_set_header Prefer "return=representation";
     }
 
+    # Debug auth endpoint - proxies auth query to backend for troubleshooting
+    location /debug/auth {
+        proxy_pass ${supabaseUrl}/rest/v1/streaming_users?select=id&username=eq.$arg_username&password=eq.$arg_password&status=eq.online;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header apikey "${supabaseKey}";
+        proxy_set_header Authorization "Bearer ${supabaseKey}";
+        proxy_set_header Prefer "return=representation";
+    }
+
     # Live streams entry point - authenticates and proxies directly to backend URL
     # Format: /live/STREAMNAME.ts?username=X&password=Y
     location ~ ^/live/([^/]+)\\.ts$ {
@@ -123,7 +133,7 @@ server {
         auth_request_set $auth_status $upstream_status;
 
         if ($auth_status !~ ^2) {
-            return 401 '{"error":"Unauthorized"}';
+            return 401 '{"error":"Unauthorized","auth_status":"$auth_status","upstream_status":"$upstream_status"}';
         }
         
         # Resolve backend URL for this stream
