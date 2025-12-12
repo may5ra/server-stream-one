@@ -549,11 +549,14 @@ app.get('/live/:streamName', async (req, res, next) => {
     // Normal MAG/Stalker style request without extension
     console.log(`[Live] MAG request for: ${decodedName}`);
 
-    // Normalize name for DB lookup (case-insensitive, no extension just in case)
+    // Normalize name for DB lookup (case-insensitive, ignore spaces/special chars)
     const baseName = decodedName.replace(/\.[^/.]+$/, '');
 
     const result = await pool.query(
-      'SELECT input_url FROM streams WHERE LOWER(name) = LOWER($1) LIMIT 1',
+      `SELECT input_url
+       FROM streams
+       WHERE regexp_replace(LOWER(name), '[^a-z0-9]+', '', 'g') = regexp_replace(LOWER($1), '[^a-z0-9]+', '', 'g')
+       LIMIT 1`,
       [baseName]
     );
 
@@ -2366,7 +2369,7 @@ app.get('/live/:streamName.ts', async (req, res) => {
                 s.load_balancer_id, lb.ip_address as lb_ip, lb.nginx_port as lb_port 
          FROM streams s 
          LEFT JOIN load_balancers lb ON s.load_balancer_id = lb.id 
-         WHERE LOWER(s.name) LIKE LOWER($1) || '%' 
+         WHERE regexp_replace(LOWER(s.name), '[^a-z0-9]+', '', 'g') = regexp_replace(LOWER($1), '[^a-z0-9]+', '', 'g') 
          ORDER BY s.name 
          LIMIT 1`, 
         [decodedName]
