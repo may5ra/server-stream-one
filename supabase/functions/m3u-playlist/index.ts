@@ -76,10 +76,10 @@ Deno.serve(async (req) => {
   const serverUrl = serverDomainSetting?.value || serverIpSetting?.value || url.hostname;
   const httpPort = httpPortSetting?.value || "80";
   
-  // Get all live streams with load balancer info
+  // Get all live streams
   const { data: streams } = await supabase
     .from("streams")
-    .select("*, load_balancers(ip_address, nginx_port)")
+    .select("*")
     .eq("status", "live")
     .order("category")
     .order("channel_number");
@@ -124,21 +124,9 @@ Deno.serve(async (req) => {
       }
       
       const encodedName = encodeURIComponent(stream.name);
-      const proxyMode = stream.proxy_mode || "direct";
       
-      // Check if stream has a load balancer assigned
-      const lb = (stream as any).load_balancers;
-      
-      if (lb && lb.ip_address) {
-        // Use Load Balancer URL
-        const lbPort = lb.nginx_port || 80;
-        console.log(`[M3U] Stream: ${stream.name} -> LB ${lb.ip_address}:${lbPort}`);
-        m3u += `http://${lb.ip_address}:${lbPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
-      } else {
-        // Use main server URL (Docker backend)
-        console.log(`[M3U] Stream: ${stream.name} -> Server ${serverUrl}:${httpPort}`);
-        m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
-      }
+      // Always use main server URL - server handles LB routing internally
+      m3u += `http://${serverUrl}:${httpPort}/live/${encodedName}.ts?username=${username}&password=${password}\n`;
     });
   });
   
