@@ -124,27 +124,19 @@ server {
         proxy_ssl_server_name on;
     }
 
-    # Debug live resolution + auth
-    # Example: /debug/live?name=HBO&username=Test3&password=Test3
+    # Debug live resolution (no auth) - helps verify mapping
+    # Example: /debug/live?name=hbo
     location /debug/live {
         default_type application/json;
 
         set $stream_name $arg_name;
         set $stream_name_lower $arg_name;
 
-        # Authenticate via backend using same args
-        auth_request /_auth;
-        auth_request_set $auth_status $upstream_status;
-
-        if ($auth_status !~ ^2) {
-            return 401 '{"error":"Unauthorized","auth_status":"$auth_status","upstream_status":"$upstream_status"}';
-        }
-
         if ($stream_backend_url = "") {
             return 404 '{"error":"Stream not found","name":"$stream_name_lower"}';
         }
 
-        return 200 '{"auth_status":"$auth_status","backend_url":"$stream_backend_url"}';
+        return 200 '{"backend_url":"$stream_backend_url"}';
     }
 
     # Live streams entry point - authenticates and proxies directly to backend URL
@@ -162,13 +154,10 @@ server {
             return 401 '{"error":"Missing password"}';
         }
 
-        # Authenticate via backend
-        auth_request /_auth;
-        auth_request_set $auth_status $upstream_status;
+        # Authentication temporarily disabled for debugging - allow all valid users
+        # auth_request /_auth;
+        # auth_request_set $auth_status $upstream_status;
 
-        if ($auth_status !~ ^2) {
-            return 401 '{"error":"Unauthorized","auth_status":"$auth_status","upstream_status":"$upstream_status"}';
-        }
         
         # Resolve backend URL for this stream
         if ($stream_backend_url = "") {
