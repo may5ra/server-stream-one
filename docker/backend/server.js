@@ -542,8 +542,8 @@ app.get('/live/:streamName', async (req, res) => {
     
     console.log(`[Live] MAG request for: ${decodedName}`);
     
-    // Get stream
-    const result = await pool.query('SELECT input_url FROM streams WHERE name = $1', [decodedName]);
+    // Get stream (case-insensitive match on name)
+    const result = await pool.query('SELECT input_url FROM streams WHERE LOWER(name) = LOWER($1)', [decodedName]);
     
     if (result.rows.length === 0) {
       return res.status(404).send('Stream not found');
@@ -2355,7 +2355,7 @@ app.get('/live/:streamName.ts', async (req, res) => {
                 s.load_balancer_id, lb.ip_address as lb_ip, lb.nginx_port as lb_port 
          FROM streams s 
          LEFT JOIN load_balancers lb ON s.load_balancer_id = lb.id 
-         WHERE s.name = $1`, 
+         WHERE LOWER(s.name) = LOWER($1)`, 
         [decodedName]
       );
       if (result.rows.length === 0) {
