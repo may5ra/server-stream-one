@@ -31,7 +31,7 @@ function generateNginxConfig(streams: Stream[], lbPort: number, supabaseUrl: str
   const mapEntries: string[] = [];
   
   streams.forEach((stream, index) => {
-    const streamName = stream.name.toLowerCase();
+    const streamName = stream.name;
     const inputUrl = stream.input_url;
     
     // Parse the input URL to get host and path
@@ -54,7 +54,7 @@ upstream ${upstreamName} {
 
   const streamMap = `
 # Stream URL mapping
-map $stream_name_lower $stream_backend_url {
+map $stream_name $stream_backend_url {
     default "";
 ${mapEntries.join('\n')}
 }`;
@@ -108,7 +108,6 @@ server {
     # Live streams - format: /live/STREAMNAME.ts?username=X&password=Y
     location ~ ^/live/(.+)\\.ts$ {
         set $stream_name $1;
-        set $stream_name_lower $1;
         
         # Check for credentials
         if ($arg_username = "") {
