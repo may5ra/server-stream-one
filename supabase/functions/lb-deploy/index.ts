@@ -206,6 +206,9 @@ server {
         proxy_buffers 4 256k;
         proxy_busy_buffers_size 256k;
         
+        # Rewrite any absolute redirects from origin to LB /s/<stream>/ path
+        proxy_redirect ~^https?://[^/]+(/.*)$ $scheme://$host:$server_port/s/$stream_name_lower$1;
+        
         # CORS
         add_header Access-Control-Allow-Origin * always;
         add_header Access-Control-Allow-Methods 'GET, OPTIONS' always;
