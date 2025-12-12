@@ -180,8 +180,8 @@ server {
         proxy_buffers 4 256k;
         proxy_busy_buffers_size 256k;
         
-        # Don't modify redirects from upstream
-        proxy_redirect off;
+        # Don't leak upstream host in redirects - rewrite Location to LB host
+        proxy_redirect $stream_backend_host $scheme://$host:$server_port;
         
         # CORS headers
         add_header Access-Control-Allow-Origin * always;
