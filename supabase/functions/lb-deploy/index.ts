@@ -27,33 +27,37 @@ interface LoadBalancer {
 // Generate Nginx configuration with auth_request and simple reverse proxy
 // This keeps the source server hidden while letting its redirects work normally
 function generateNginxConfig(streams: Stream[], lbPort: number, supabaseUrl: string, supabaseKey: string): string {
-  // Map entries: lowercase stream name -> full backend URL (including path)
-  const urlMapEntries: string[] = [];
+  // Map entries: normalized stream name -> full backend URL
+  // Use a Set to avoid duplicate keys which cause Nginx conflicts
+  const urlMap = new Map<string, string>();
 
   streams.forEach((stream) => {
-    const streamName = stream.name;
-    const lowerName = streamName.toLowerCase();
-    const normalizedName = lowerName.replace(/[^a-z0-9]/g, "");
     const inputUrl = stream.input_url;
-
-    // Map using original stream name (case-sensitive)
-    urlMapEntries.push(`    "${streamName}" "${inputUrl}";`);
-
-    // Map original lowercase name
-    urlMapEntries.push(`    "${lowerName}" "${inputUrl}";`);
-
-    // Add normalized version if different (e.g. spaces, special chars)
-    if (normalizedName !== lowerName) {
-      urlMapEntries.push(`    "${normalizedName}" "${inputUrl}";`);
+    
+    // Only use normalized (lowercase, alphanumeric) key to avoid Nginx conflicts
+    const normalizedName = stream.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    
+    // Skip empty names
+    if (normalizedName && inputUrl) {
+      urlMap.set(normalizedName, inputUrl);
     }
   });
 
-  // Stream names for debug endpoint
-  const streamList = streams.map((s) => `"${s.name}"`).join(",");
+  // Build unique map entries
+  const urlMapEntries = Array.from(urlMap.entries()).map(
+    ([key, url]) => `    "${key}" "${url}";`
+  );
+
+  // Stream names for debug endpoint - show normalized key for URL construction
+  const streamList = streams.map((s) => {
+    const normalized = s.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return `"${normalized}"`;
+  }).join(",");
+  
   const streamDebug = JSON.stringify(
     streams.map((s) => ({
       name: s.name,
-      lower: s.name.toLowerCase(),
+      normalized: s.name.toLowerCase().replace(/[^a-z0-9]/g, ""),
       url: s.input_url,
       type: s.input_type,
       proxy_mode: s.proxy_mode,
@@ -64,8 +68,9 @@ function generateNginxConfig(streams: Stream[], lbPort: number, supabaseUrl: str
 # Generated: ${new Date().toISOString()}
 # Streams: ${streams.length}
 # Mode: Auth + Reverse Proxy (source URL hidden, redirects preserved)
+# NOTE: Stream names are normalized (lowercase, alphanumeric only) for URL access
 
-# Stream URL mapping (lowercase keys) - full protocol://host/path
+# Stream URL mapping (normalized keys) - full protocol://host/path
 map $stream_name_lower $stream_backend_url {
     default "";
 ${urlMapEntries.join("\n")}
@@ -143,9 +148,10 @@ server {
     }
 
     # Live streams entry point - authenticates and proxies directly to backend URL
-    # Format: /live/STREAMNAME.ts?username=X&password=Y
+    # Format: /live/STREAMNAME.ts?username=X&password=Y (name is normalized to lowercase alphanumeric)
     location ~ ^/live/([^/]+)\\.ts$ {
         set $stream_name $1;
+        # Nginx will use $stream_name_lower for map lookup - must match normalized key
         set $stream_name_lower $1;
         
         # Basic validation of credentials
@@ -383,12 +389,16 @@ NGINXEOF`
         .update({ last_deploy: new Date().toISOString() })
         .eq('id', loadBalancerId);
 
-      // Generate stream URLs for this LB - use exact stream name format
-      const streamMappings = (streams || []).map(stream => ({
-        name: stream.name,
-        originalUrl: stream.input_url,
-        proxyUrl: `http://${lb.ip_address}:${lb.nginx_port || 80}/live/${encodeURIComponent(stream.name)}.ts?username=USER&password=PASS`
-      }));
+      // Generate stream URLs for this LB - use normalized stream name (lowercase, alphanumeric)
+      const streamMappings = (streams || []).map(stream => {
+        const normalizedName = stream.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+        return {
+          name: stream.name,
+          normalizedName: normalizedName,
+          originalUrl: stream.input_url,
+          proxyUrl: `http://${lb.ip_address}:${lb.nginx_port || 80}/live/${normalizedName}.ts?username=USER&password=PASS`
+        };
+      });
 
       return new Response(
         JSON.stringify({ 
