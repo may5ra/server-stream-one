@@ -96,7 +96,7 @@ server {
     # Auth subrequest - validates against backend database
     location = /_auth {
         internal;
-        proxy_pass ${supabaseUrl}/rest/v1/streaming_users?select=id&username=eq.$arg_username&password=eq.$arg_password&status=eq.active;
+        proxy_pass ${supabaseUrl}/rest/v1/streaming_users?select=id&username=eq.$arg_username&password=eq.$arg_password&status=eq.online;
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
         proxy_set_header apikey "${supabaseKey}";
@@ -231,9 +231,8 @@ serve(async (req) => {
       );
     }
 
-    // Get anon key for auth requests
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || supabaseKey;
-    const nginxConfig = generateNginxConfig(streams || [], lb.nginx_port || 80, supabaseUrl, anonKey);
+    // Use service role key for internal auth requests from Nginx
+    const nginxConfig = generateNginxConfig(streams || [], lb.nginx_port || 80, supabaseUrl, supabaseKey);
     console.log(`Generated config for ${streams?.length || 0} streams`);
 
     // Agent always runs on port 3002
