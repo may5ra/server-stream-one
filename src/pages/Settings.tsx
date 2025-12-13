@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw, Server, Play, ExternalLink, Terminal, FileCode } from "lucide-react";
+import { Save, Shield, Bell, Globe, Database, Key, Copy, RefreshCw, Server, Play, ExternalLink, Terminal, FileCode, Network } from "lucide-react";
 import { StreamTestPlayer } from "@/components/StreamTestPlayer";
 import { NginxConfigGenerator } from "@/components/NginxConfigGenerator";
 import { NginxProxyGenerator } from "@/components/NginxProxyGenerator";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const SETTINGS_KEY = 'streampanel_settings';
 const API_KEY_KEY = 'streampanel_api_key';
@@ -68,6 +69,8 @@ const Settings = () => {
   const [nginxConfigOpen, setNginxConfigOpen] = useState(false);
   const [sshControlOpen, setSshControlOpen] = useState(false);
   const [proxyConfigOpen, setProxyConfigOpen] = useState(false);
+  const [mainServerUrl, setMainServerUrl] = useState('');
+  const [savingMainServer, setSavingMainServer] = useState(false);
 
   useEffect(() => {
     // Load settings from localStorage and merge with defaults
@@ -89,8 +92,45 @@ const Settings = () => {
       localStorage.setItem(API_KEY_KEY, savedApiKey);
     }
     setApiKey(savedApiKey);
+    
+    // Load main server URL from Supabase
+    loadMainServerUrl();
+    
     setLoading(false);
   }, []);
+
+  const loadMainServerUrl = async () => {
+    const { data } = await supabase
+      .from('panel_settings')
+      .select('value')
+      .eq('key', 'main_server_url')
+      .single();
+    
+    if (data?.value) {
+      setMainServerUrl(data.value);
+    }
+  };
+
+  const saveMainServerUrl = async () => {
+    setSavingMainServer(true);
+    try {
+      const { error } = await supabase
+        .from('panel_settings')
+        .upsert({ 
+          key: 'main_server_url', 
+          value: mainServerUrl,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'key' });
+      
+      if (error) throw error;
+      
+      toast({ title: "Spremljeno", description: "Main Server URL je spremljen" });
+    } catch (error: any) {
+      toast({ title: "Greška", description: error.message, variant: "destructive" });
+    } finally {
+      setSavingMainServer(false);
+    }
+  };
 
   const handleSave = () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -291,6 +331,42 @@ const Settings = () => {
                     checked={settings.debugMode}
                     onCheckedChange={(checked) => setSettings({ ...settings, debugMode: checked })}
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Load Balancer Configuration */}
+            <div className="glass rounded-xl p-6">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
+                  <Network className="h-5 w-5 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">Load Balancer</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Main Server URL</Label>
+                  <p className="text-sm text-muted-foreground">
+                    URL glavnog servera na koji će Load Balanceri proslijeđivati sve zahtjeve (kao XUI)
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="http://192.168.1.100:8080"
+                      value={mainServerUrl}
+                      onChange={(e) => setMainServerUrl(e.target.value)}
+                    />
+                    <Button 
+                      onClick={saveMainServerUrl} 
+                      disabled={savingMainServer}
+                      variant="glow"
+                    >
+                      {savingMainServer ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Primjer: http://38.18.100.86:8080 - LB će proxy-irati sve /live/*, /vod/* itd. na ovaj server
+                  </p>
                 </div>
               </div>
             </div>
