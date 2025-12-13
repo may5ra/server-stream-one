@@ -67,8 +67,8 @@ server {
         proxy_pass ${mainServerUrl};
         proxy_http_version 1.1;
         
-        # Pass original request info
-        proxy_set_header Host $host;
+        # IMPORTANT: Pass the upstream Host, not LB host - prevents redirect loops
+        proxy_set_header Host ${new URL(mainServerUrl).host};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -77,8 +77,8 @@ server {
         # Strip cookies before forwarding to main server to avoid huge Cookie headers
         proxy_set_header Cookie "";
         
-        # Rewrite redirects from main server to use LB address
-        proxy_redirect ~^(https?)://[^/]+(/.*)$ $1://$host:$server_port$2;
+        # Disable redirect rewriting - let main server URLs pass through as-is
+        proxy_redirect off;
         
         # Streaming optimizations
         proxy_buffering off;
