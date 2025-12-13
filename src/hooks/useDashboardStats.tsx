@@ -124,42 +124,11 @@ export const useDashboardStats = () => {
       ? Math.round(onlineServersList.reduce((sum, s) => sum + (s.network_usage || 0), 0) / onlineServersList.length)
       : 0;
 
-    // Calculate total connections from Load Balancers (real viewers)
-    let totalLBConnections = 0;
-    for (const lb of lbList) {
-      if (lb.status === "active" && lb.ip_address) {
-        try {
-          const statusUrl = `http://${lb.ip_address}:${lb.nginx_port || 8080}/status`;
-          const response = await fetch(statusUrl, { signal: AbortSignal.timeout(3000) });
-          if (response.ok) {
-            // Try to get nginx stub_status for connections count
-            const stubUrl = `http://${lb.ip_address}:3002/stats`;
-            try {
-              const statsRes = await fetch(stubUrl, { signal: AbortSignal.timeout(2000) });
-              if (statsRes.ok) {
-                const statsData = await statsRes.json();
-                totalLBConnections += statsData.connections || 0;
-              }
-            } catch {
-              // Agent stats not available, use current_streams as estimate
-              totalLBConnections += lb.current_streams || 0;
-            }
-          }
-        } catch {
-          // LB not reachable
-        }
-      }
-    }
-
-    // Use LB connections if available, otherwise fall back to user connections
-    const activeConnectionsFromUsers = usersList.reduce((sum, u) => sum + (u.connections || 0), 0);
-    const activeConnectionsTotal = totalLBConnections > 0 ? totalLBConnections : activeConnectionsFromUsers;
-
-    // Default stats from Supabase
+    // Default stats from Supabase (based only on user connections)
     let finalStats = {
       totalUsers: usersList.length,
       onlineUsers: usersList.filter((u) => u.status === "online").length,
-      activeConnections: activeConnectionsTotal,
+      activeConnections: usersList.reduce((sum, u) => sum + (u.connections || 0), 0),
       uptime: "0m",
       serversList: serversList,
       connections: [] as ActiveConnection[],
