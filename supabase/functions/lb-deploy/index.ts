@@ -46,6 +46,10 @@ server {
     resolver 8.8.8.8 8.8.4.4 valid=300s;
     resolver_timeout 5s;
 
+    # Increase header limits to avoid 400 Request Header Or Cookie Too Large
+    large_client_header_buffers 8 32k;
+    client_header_buffer_size 32k;
+
     # Health check
     location /health {
         default_type text/plain;
@@ -69,6 +73,9 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
+
+        # Strip cookies before forwarding to main server to avoid huge Cookie headers
+        proxy_set_header Cookie "";
         
         # Rewrite redirects from main server to use LB address
         proxy_redirect ~^(https?)://[^/]+(/.*)$ $1://$host:$server_port$2;
