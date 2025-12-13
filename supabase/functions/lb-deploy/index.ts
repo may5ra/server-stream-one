@@ -161,15 +161,33 @@ serve(async (req) => {
       );
     }
 
-    // Get main server URL from settings or use default
+    // Get main server URL from settings - first try main_server_url, then build from server_domain + http_port
     const { data: mainServerSetting } = await supabase
       .from('panel_settings')
       .select('value')
       .eq('key', 'main_server_url')
       .single();
     
-    // Default to http://MAIN_SERVER_IP:8080 format - user should configure this
-    const mainServerUrl = mainServerSetting?.value || 'http://localhost:8080';
+    let mainServerUrl = mainServerSetting?.value;
+    
+    // If main_server_url not set, build from server_domain and http_port
+    if (!mainServerUrl) {
+      const { data: domainSetting } = await supabase
+        .from('panel_settings')
+        .select('value')
+        .eq('key', 'server_domain')
+        .single();
+      
+      const { data: portSetting } = await supabase
+        .from('panel_settings')
+        .select('value')
+        .eq('key', 'http_port')
+        .single();
+      
+      const domain = domainSetting?.value || 'localhost';
+      const port = portSetting?.value || '80';
+      mainServerUrl = `http://${domain}:${port}`;
+    }
     console.log(`Main server URL: ${mainServerUrl}`);
 
     // Generate simple reverse proxy config pointing to main server
