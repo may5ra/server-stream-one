@@ -80,8 +80,8 @@ server {
         # Disable redirect rewriting - let main server URLs pass through as-is
         proxy_redirect off;
         
-        # Streaming optimizations
-        proxy_buffering off;
+        # Streaming optimizations - enable buffering for smooth playback
+        proxy_buffering on;
         proxy_cache off;
         proxy_request_buffering off;
         chunked_transfer_encoding on;
@@ -91,10 +91,11 @@ server {
         proxy_send_timeout 300s;
         proxy_read_timeout 300s;
         
-        # Buffer settings
-        proxy_buffer_size 128k;
-        proxy_buffers 4 256k;
-        proxy_busy_buffers_size 256k;
+        # Large buffer settings for smooth streaming (prevents buffering/stuttering)
+        proxy_buffer_size 512k;
+        proxy_buffers 16 512k;
+        proxy_busy_buffers_size 1m;
+        proxy_max_temp_file_size 0;
         
         # CORS
         add_header Access-Control-Allow-Origin * always;
