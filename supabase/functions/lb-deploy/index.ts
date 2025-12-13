@@ -80,21 +80,19 @@ server {
         # Disable redirect rewriting - let main server URLs pass through as-is
         proxy_redirect off;
         
-        # Streaming optimizations - enable buffering for smooth playback
-        proxy_buffering on;
+        # Streaming optimizations - disable buffering for low-latency playback
+        proxy_buffering off;
         proxy_cache off;
         proxy_request_buffering off;
+        proxy_ignore_client_abort on;
         chunked_transfer_encoding on;
         
         # Timeouts for long streams
         proxy_connect_timeout 10s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
         
-        # Large buffer settings for smooth streaming (prevents buffering/stuttering)
-        proxy_buffer_size 512k;
-        proxy_buffers 16 512k;
-        proxy_busy_buffers_size 1m;
+        # Disable temp files for streaming
         proxy_max_temp_file_size 0;
         
         # CORS
