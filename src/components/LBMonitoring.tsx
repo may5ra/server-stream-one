@@ -53,7 +53,7 @@ interface Props {
 export const LBMonitoring = ({ loadBalancers, onRefresh }: Props) => {
   const [healthStatus, setHealthStatus] = useState<Record<string, LBHealth>>({});
   const [checking, setChecking] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const [metricsHistory, setMetricsHistory] = useState<MetricPoint[]>([]);
   const maxHistoryPoints = 20;
 
