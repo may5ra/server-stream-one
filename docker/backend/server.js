@@ -2333,6 +2333,8 @@ app.get('/live/:streamName.ts', async (req, res) => {
   
   console.log(`[FFmpeg] Live request: ${streamName} from ${username || 'anonymous'}`);
   
+  const isFromLB = req.headers['x-from-lb'] === '1';
+  
   try {
     // Auth check (same as proxy)
     if (username && password) {
@@ -2381,8 +2383,8 @@ app.get('/live/:streamName.ts', async (req, res) => {
       setCachedStream(decodedName, stream);
     }
     
-    // If stream has a Load Balancer assigned, redirect to it
-    if (stream.lb_ip && stream.lb_port) {
+    // If stream has a Load Balancer assigned and request is not already from LB, redirect to it
+    if (stream.lb_ip && stream.lb_port && !isFromLB) {
       const lbUrl = `http://${stream.lb_ip}:${stream.lb_port}/live/${encodeURIComponent(decodedName)}.ts?username=${username}&password=${password}`;
       console.log(`[FFmpeg] Redirecting to LB: ${lbUrl}`);
       return res.redirect(302, lbUrl);
